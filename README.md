@@ -10,7 +10,6 @@ SYS 2064
 
 ## TODO
 - Move the snake
-- Read controls
 - Display the score
 - Add colour
 - Add sound
