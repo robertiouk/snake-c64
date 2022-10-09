@@ -105,52 +105,36 @@ loop:
 
 // Draw the snake.
 // - Start from the lowest segment (tail blank), then work up to the head
-draw_snake:
-    // Set up zero page variables
-    .var screenIndirectLow = $bb
-    .var screenIndirectHigh = $bc
+draw_snake: {
+    // Load params for draw_to_screen method
+    .var xPointer = $03a0
+    .var yPointer = $03a1
+    .var charPointer = $03a2
+     // Set up zero page variables
     .var snakeIndirectLow = $fd
     .var snakeIndirectHigh = $fe
-    .var currentSegmentIndexLow = $03a0  // This will hold the current segment index
-    .var currentSegmentIndexHigh = $03a1
+    .var currentSegmentIndexLow = $03a3  // This will hold the current segment index
+    .var currentSegmentIndexHigh = $03a4
     lda MEMORY_INDIRECT_LOW
     sta snakeIndirectLow
     lda MEMORY_INDIRECT_HIGH
     sta snakeIndirectHigh 
-    // Push segment tracking to stack (2 bytes init to 0)  
+    // Push segment tracking to temp variables (2 bytes init to 0)  
     lda #0
     sta currentSegmentIndexLow
     sta currentSegmentIndexHigh 
     // Now start the drawing...
 draw_next_segment:
-    // Reset screen memory
-    lda SCREEN_MEMORY_PAGE
-    sta screenIndirectHigh
-    lda #0
-    sta screenIndirectLow
     // Draw next segment
-    ldy #SEGMENT_OFFSET + 1
-    lda (snakeIndirectLow), y       // y (row) of the current segment
-    tax                             // transfer the y coord to the x register so we can count down rows                         
-!:
-    cpx #0
-    beq !+
-    // Increment the screen row
-    clc
-    lda screenIndirectLow
-    adc #COLS_IN_ROW
-    sta screenIndirectLow
-    lda screenIndirectHigh
-    adc #0
-    sta screenIndirectHigh
-    dex
-    jmp !-   
-!:
-    // Next, get the x location of the segment
+    // Get the x location of the segment
     ldy #SEGMENT_OFFSET
     lda (snakeIndirectLow), y
+    sta xPointer
+    // Get the y location of the segnebt
+    iny
+    lda (snakeIndirectLow), y       
+    sta yPointer
     // Work out which character to draw (end of tail is blank)
-    tay
     lda currentSegmentIndexHigh
     bne !+
     lda currentSegmentIndexLow
@@ -160,8 +144,8 @@ draw_next_segment:
 !:
     lda #SNAKE_CHAR
 draw_the_char:
-    // Finally draw the segment to scren memory
-    sta (screenIndirectLow), y
+    sta charPointer
+    jsr draw_to_screen
     // Increment the current segment count
     clc
     inc currentSegmentIndexLow
@@ -186,6 +170,7 @@ draw_the_char:
     cmp (MEMORY_INDIRECT_LOW), y
     bne draw_next_segment
     rts
+}
 
 // Gets the next random X & Y for the food.
 // For each coordinate:
@@ -216,6 +201,8 @@ next_food:
     sta (MEMORY_INDIRECT_LOW), y   // food y
     rts
 
+// Draw the food by getting the x/y from memory and calling the
+// draw_to_screen method.
 draw_food: {
     // Load params for draw_to_screen method
     .var xPointer = $03a0
