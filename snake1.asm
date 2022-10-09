@@ -123,14 +123,6 @@ draw_snake:
     sta currentSegmentIndexHigh 
     // Now start the drawing...
 draw_next_segment:
-    // First adjust relative memory
-    /*lda MEMORY_INDIRECT_LOW
-    clc
-    adc currentSegmentIndexLow
-    sta snakeIndirectLow
-    lda MEMORY_INDIRECT_HIGH
-    adc currentSegmentIndexHigh
-    sta snakeIndirectHigh*/
     // Reset screen memory
     lda SCREEN_MEMORY_PAGE
     sta screenIndirectHigh
@@ -203,6 +195,8 @@ draw_the_char:
 // -- check if number is greater than max, e.g., bits 3 or 4 set 
 // -- if greater than xor with mask to flip bits and ensure number is less
 // - Write x/y values to food memory locations
+// This is not a very good way of getting random coords as it produces a bias due to the 
+// handling of overflowed values.
 next_food:
     lda $d41b       // get the random number
     ldy #FOOD_OFFSET
@@ -222,38 +216,66 @@ next_food:
     sta (MEMORY_INDIRECT_LOW), y   // food y
     rts
 
-draw_food:
-    // Put the screen memory page number into $BB/BC
-    lda SCREEN_MEMORY_PAGE
-    sta $bc                 // high byte
-    lda #0
-    sta $bb                 // low byte
-    // First, get the Y location of the food
-    ldy #FOOD_OFFSET + 1
+draw_food: {
+    // Load params for draw_to_screen method
+    .var xPointer = $03a0
+    .var yPointer = $03a1
+    .var charPointer = $03a2
+    // Get the x location of the food
+    ldy #FOOD_OFFSET
     lda (MEMORY_INDIRECT_LOW), y
+    sta xPointer 
+    // Get the Y location of the food
+    iny
+    lda (MEMORY_INDIRECT_LOW), y
+    sta yPointer 
+    // Finally draw the food to scren memory
+    lda #FOOD_CHAR
+    sta charPointer
+    jsr draw_to_screen
+    rts    
+}
+
+// Draw a character to the screen
+//  - lookup x coord in $03a0
+//  - lookup y coord in $03a1
+//  - lookup char in $03a2
+draw_to_screen: {
+    // Put the screen memory page number into $BB/BC
+    .var screenIndirectLow = $bb
+    .var screenIndirectHigh = $bc
+    .var xPointer = $03a0
+    .var yPointer = $03a1
+    .var charPointer = $03a2
+    lda SCREEN_MEMORY_PAGE
+    sta screenIndirectHigh                // high byte
+    lda #0
+    sta screenIndirectLow                 // low byte
+    // First, get the Y location
+    lda yPointer
     tax                     // transfer the y coord to the x register so we can count down rows                         
 !:
     cpx #0
     beq !+
     // Increment the screen row
     clc
-    lda $bb
+    lda screenIndirectLow
     adc #COLS_IN_ROW
-    sta $bb
-    lda $bc
+    sta screenIndirectLow
+    lda screenIndirectHigh
     adc #0
-    sta $bc
+    sta screenIndirectHigh
     dex
     jmp !-
 !:
     // Next, get the x location of the food
-    ldy #FOOD_OFFSET
-    lda (MEMORY_INDIRECT_LOW), y 
+    lda xPointer 
     // Finally draw the food to scren memory
     tay
-    lda #FOOD_CHAR
-    sta ($bb), y
-    rts    
+    lda charPointer
+    sta (screenIndirectLow), y
+    rts
+}
 
 end:
     rts
