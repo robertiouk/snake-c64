@@ -15,10 +15,12 @@ main:
     .const SIZE_OFFSET = 5
     .const DIRECTION_OFFSET = 7
     .const SEGMENT_OFFSET = 8
+    .const SEGMENT_SIZE = 2
     // Top of screen memory (page)
     .const SCREEN_MEMORY_PAGE = $0288
-    // Screen columns
+    // Screen columns & rows
     .const COLS_IN_ROW = 40
+    .const ROWS_IN_COL = 25
     // The character for drawing
     .const FOOD_CHAR = 88
     .const BLANK_CHAR = 32
@@ -115,9 +117,11 @@ init_random:
 
 // Main game loop
     jsr draw_food
+    jsr set_interrupt
 loop:
-    jsr draw_snake
+    //jsr draw_snake
     jsr read_inputs
+
     // Check game state
     ldy #RUN_STATE_OFFSET
     lda (MEMORY_INDIRECT_LOW), y
@@ -126,6 +130,173 @@ loop:
     jmp loop
 !:
     jmp end
+
+set_interrupt:
+    sei             // disable interrupts
+    lda #$7f        // turn of the CIA timer interrupt: 0111 1111
+    sta $dc0d       // CIA interrupt control register (Read IRQs/Write Mask)
+    sta $dd0d       // CIA interrupt control register (Read NMIs/Write Mask)
+    // Setup raster interrupt
+    and $d011       // clear the high bit
+    sta $d011
+    lda #100        // this will set the IRQ to trigger on raster line 100
+    sta $d012
+    // Set pointer for raster interrupt
+    lda #<my_interrupt
+    sta $0314       // store in Vector: Hardware IRQ Interrupt
+    lda #>my_interrupt
+    sta $0315
+    // Enable raster interrupt
+    lda #01
+    sta $d01a
+    cli             // enable interrupts
+    rts
+
+my_interrupt:
+    // Set bit 0 in Interrupt Status Register to acknowledge raster interrupt
+    inc $d019       // VIC Interrupt Flag Register (1 = IRQ occurred)
+
+    // Paint border for some profiling - remoe this later
+    inc $d020
+
+    // Do some stuff...
+    jsr move_snake
+    jsr draw_snake
+
+    dec $d020
+
+    jmp $ea31       // Restores A, X & Y registers and CPU flags before returning from interrupt
+
+move_snake: {
+    .var snakeIndirectLow = $fd
+    .var snakeIndirectHigh = $fe    
+    .var currentSegmentIndexLow = TEMP5  // This will hold the current segment index
+    .var currentSegmentIndexHigh = TEMP6
+    lda MEMORY_INDIRECT_LOW
+    sta snakeIndirectLow
+    lda MEMORY_INDIRECT_HIGH
+    sta snakeIndirectHigh
+    // Init the segment index
+    ldy #SIZE_OFFSET
+    lda (snakeIndirectLow), y
+    sta currentSegmentIndexLow
+    iny
+    lda (snakeIndirectLow), y
+    sta currentSegmentIndexHigh
+    // Subtract 1 from the total
+    sec
+    dec currentSegmentIndexLow
+    lda currentSegmentIndexHigh
+    sbc #0
+    sta currentSegmentIndexHigh
+    // Get the char that was in coord the snake just moved to
+    lda TEMP4
+    cmp #FOOD_CHAR
+    bne !+
+    // Got food
+    nop
+    //jmp draw_head
+!:
+    // Shift the snake segments down
+    ldy #SEGMENT_OFFSET + SEGMENT_SIZE  // Get the x value of the next segment to current
+    lda (snakeIndirectLow), y
+    ldy #SEGMENT_OFFSET                 // Move to x value to the current segment
+    sta (snakeIndirectLow), y
+    ldy #SEGMENT_OFFSET + SEGMENT_SIZE + 1 // Now do the same with y
+    lda (snakeIndirectLow), y
+    ldy #SEGMENT_OFFSET+1
+    sta (snakeIndirectLow), y
+    // Decrement the segment index
+    sec
+    dec currentSegmentIndexLow
+    lda currentSegmentIndexHigh 
+    sbc #0
+    sta currentSegmentIndexHigh
+    bne !+
+    lda currentSegmentIndexLow
+    bne !+
+    jmp move_head             // If we reach here index is 0 and we're done
+!:
+    // Increment to next segment
+    clc
+    lda snakeIndirectLow
+    adc #SEGMENT_SIZE
+    sta snakeIndirectLow
+    lda snakeIndirectHigh
+    adc #0
+    sta snakeIndirectHigh
+    jmp !--
+move_head:
+    // Get the current direction
+    ldy #DIRECTION_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    // ------------ UP ---------------
+    cmp #UP_DIRECTION
+    bne !++
+    ldy #SEGMENT_OFFSET + 1 + SEGMENT_SIZE    // get Y
+    lda (snakeIndirectLow), y
+    // Decrement y
+    tax
+    dex
+    txa
+    // If < 0 row then wrap around
+    bpl !+                      // if positive number (not < 0) then skip the next bit
+    lda #ROWS_IN_COL - 1
+!:
+    sta (snakeIndirectLow), y   // store the modified value
+    jmp done
+!:
+    // ------------ DOWN ---------------
+    cmp #DOWN_DIRECTION
+    bne !++
+    ldy #SEGMENT_OFFSET + 1 + SEGMENT_SIZE    // get Y
+    lda (snakeIndirectLow), y
+    // Increment y
+    tax
+    inx
+    txa
+    // if > max rows then wrap around
+    cmp #ROWS_IN_COL
+    bne !+                      // if not equal then skip the next bit
+    lda #0
+!:
+    sta (snakeIndirectLow), y   // store the modified value
+    jmp done
+!:
+    // ------------ LEFT ---------------
+    cmp #LEFT_DIRECTION
+    bne !++
+    ldy #SEGMENT_OFFSET + SEGMENT_SIZE        // get x
+    lda (snakeIndirectLow), y
+    // Decrement x
+    tax
+    dex
+    txa
+    // if < 0 col then wrap around
+    bpl !+
+    lda #COLS_IN_ROW - 1
+!:
+    sta (snakeIndirectLow), y
+    jmp done
+!:
+    // ------------ RIGHT ---------------
+    cmp #RIGHT_DIRECTION
+    bne !++
+    ldy #SEGMENT_OFFSET + SEGMENT_SIZE        // get x
+    lda (snakeIndirectLow), y
+    // Increment x
+    tax
+    inx
+    txa
+    // if > max col then wrap around
+    cmp #COLS_IN_ROW
+    bne !+
+    lda #0
+!:
+    sta (snakeIndirectLow), y
+done:
+    rts
+}
 
 // Draw the snake.
 // - Start from the lowest segment (tail blank), then work up to the head
@@ -179,7 +350,7 @@ draw_the_char:
     // Increment current segment reference
     clc
     lda snakeIndirectLow
-    adc #2
+    adc #SEGMENT_SIZE
     sta snakeIndirectLow
     lda snakeIndirectHigh
     adc #0
@@ -300,9 +471,13 @@ draw_to_screen: {
     // Before drawing store the char currently loaded on screen 
     lda (screenIndirectLow), y
     sta result 
-    // We never want to draw over a snake segment, ensure screen contains anything else
+    // We never want to draw over a snake segment (unless blanking), ensure screen contains anything else
     cmp #SNAKE_CHAR
-    beq !+
+    bne !+              // It's not a snake char, so go ahead and draw
+    lda charPointer
+    cmp #BLANK_CHAR     
+    bne !++             // It's a snake char and NOT a blank char so don't draw
+!:
     // Now we can draw; doesn't matter if food already exists as it's cheap to re-write
     lda charPointer
     sta (screenIndirectLow), y
