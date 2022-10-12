@@ -31,11 +31,6 @@ main:
     .const RIGHT_DIRECTION = 29
     .const DOWN_DIRECTION = 17
     .const LEFT_DIRECTION = 157
-    // Other constants
-    .const INIT_SNAKE_SIZE = 3
-    .const START_ROW = 11
-    .const START_COL = 20
-    .const QUIT_GAME = $ff
     // Temp variables for parameters etc. Define as constants as may want to change these
     .const TEMP1 = $0334
     .const TEMP2 = $0335
@@ -43,6 +38,14 @@ main:
     .const TEMP4 = $0337
     .const TEMP5 = $0338
     .const TEMP6 = $0339
+    .const TEMP7 = $033a
+    // Other constants
+    .const INIT_SNAKE_SIZE = 3
+    .const START_ROW = 11
+    .const START_COL = 20
+    .const QUIT_GAME = $ff
+    .const FRAMES_PER_UPDATE = 4
+    .const FRAME_COUNT = TEMP7
     // ROM functions
     .const SCAN_STOP = $ffe1
     .const CHAR_OUT = $ffd2
@@ -81,6 +84,7 @@ init:
     // Initialise variables
     lda #00
     ldy #00
+    sta FRAME_COUNT
     sta (MEMORY_INDIRECT_LOW), y
     iny
     sta (MEMORY_INDIRECT_LOW), y    // score = 0
@@ -115,11 +119,10 @@ init_random:
     lda #$80  // noise waveform, gate bit off
     sta $D412 // voice 3 control register
 
-// Main game loop
     jsr draw_food
     jsr set_interrupt
+    // Main game loop
 loop:
-    //jsr draw_snake
     jsr read_inputs
 
     // Check game state
@@ -156,15 +159,17 @@ my_interrupt:
     // Set bit 0 in Interrupt Status Register to acknowledge raster interrupt
     inc $d019       // VIC Interrupt Flag Register (1 = IRQ occurred)
 
-    // Paint border for some profiling - remoe this later
-    inc $d020
-
+    inc FRAME_COUNT
+    lda FRAME_COUNT
+    cmp #FRAMES_PER_UPDATE
+    bne !+
     // Do some stuff...
     jsr move_snake
     jsr draw_snake
-
-    dec $d020
-
+    lda #0
+    sta FRAME_COUNT
+!:
+    
     jmp $ea31       // Restores A, X & Y registers and CPU flags before returning from interrupt
 
 move_snake: {
@@ -190,12 +195,25 @@ move_snake: {
     sbc #0
     sta currentSegmentIndexHigh
     // Get the char that was in coord the snake just moved to
+    ldx #0              // use the x register to determine wheter food was eaten (1 = eaten)
     lda TEMP4
     cmp #FOOD_CHAR
     bne !+
+eaten_food:
     // Got food
-    nop
-    //jmp draw_head
+    jsr next_food
+    jsr draw_food
+    // Grow the snake 
+    ldy #SIZE_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    clc
+    adc #1
+    sta (MEMORY_INDIRECT_LOW), y
+    iny
+    lda (MEMORY_INDIRECT_LOW), y
+    adc #0
+    sta (MEMORY_INDIRECT_LOW), y
+    ldx #1              // food eaten
 !:
     // Shift the snake segments down
     ldy #SEGMENT_OFFSET + SEGMENT_SIZE  // Get the x value of the next segment to current
@@ -215,7 +233,12 @@ move_snake: {
     bne !+
     lda currentSegmentIndexLow
     bne !+
-    jmp move_head             // If we reach here index is 0 and we're done
+    // If we reach here index is 0 and we're done
+    // If food has been eaten then increment segment index 1 more time to grow snake
+    cpx #1              // has the food been eaten?
+    bne move_head       // no food eaten, so draw head immediately (no need to grow)
+    inx                 // if food has been eating inc x to indicate it's time to draw the head finally
+    // Now increment segment one more time...
 !:
     // Increment to next segment
     clc
@@ -225,7 +248,18 @@ move_snake: {
     lda snakeIndirectHigh
     adc #0
     sta snakeIndirectHigh
-    jmp !--
+    cpx #2             // if snake has just grown then we're done, so move the head
+    bne !--
+grow_head:
+    // First the current head needs shifting to the right so we have a value to move
+    ldy #SEGMENT_OFFSET                     // Get the x value of the next segment to current
+    lda (snakeIndirectLow), y
+    ldy #SEGMENT_OFFSET + SEGMENT_SIZE      // Move to x value to the final segment
+    sta (snakeIndirectLow), y
+    ldy #SEGMENT_OFFSET +1                  // Now do the same with y
+    lda (snakeIndirectLow), y
+    ldy #SEGMENT_OFFSET + SEGMENT_SIZE + 1
+    sta (snakeIndirectLow), y
 move_head:
     // Get the current direction
     ldy #DIRECTION_OFFSET
