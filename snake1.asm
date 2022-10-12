@@ -26,6 +26,8 @@ main:
     .const BLANK_CHAR = 32
     .const SNAKE_CHAR = 81
     .const CLS_CHAR = 147
+    .const FOOD_COLOUR = GREEN
+    .const SNAKE_COLOUR = RED
     // Snake directions (based on ASCII)
     .const UP_DIRECTION = 145
     .const RIGHT_DIRECTION = 29
@@ -47,7 +49,7 @@ main:
     .const GAME_OVER = $0f
     .const FRAMES_PER_UPDATE = 4
     .const FRAME_COUNT = TEMP7
-    // ROM functions
+    // ROM functions / memory locations
     .const SCAN_STOP = $ffe1
     .const CHAR_OUT = $ffd2
     .const GET_IN = $ffe4
@@ -328,7 +330,7 @@ move_head:
 !:
     // ------------ RIGHT ---------------
     cmp #RIGHT_DIRECTION
-    bne !++
+    bne !+
     ldy #SEGMENT_OFFSET + SEGMENT_SIZE        // get x
     lda (snakeIndirectLow), y
     // Increment x
@@ -465,7 +467,6 @@ draw_food: {
     // Finally draw the food to scren memory
     lda #FOOD_CHAR
     sta charPointer
-
     jsr draw_to_screen
     // Check for any illegal food positions (collisions with snake or other food)
     lda drawResult
@@ -483,9 +484,12 @@ draw_food: {
 // - lookup char in TEMP3
 // @return store the char that was already occupying screen memory in TEMP4
 draw_to_screen: {
-    // Put the screen memory page number into $BB/BC
+    // Put the screen memory page number into $BB/BC (Pointer: Current File Name)
     .var screenIndirectLow = $bb
     .var screenIndirectHigh = $bc
+    // Put the colour memory page number into $35/$36 (Utility String Pointer)
+    .var colourIndirectLow = $35
+    .var colourIndirectHigh = $36
     .var xPointer = TEMP1
     .var yPointer = TEMP2
     .var charPointer = TEMP3
@@ -494,6 +498,11 @@ draw_to_screen: {
     sta screenIndirectHigh                // high byte
     lda #0
     sta screenIndirectLow                 // low byte
+    // Colour starts at $D800
+    lda #0
+    sta colourIndirectLow
+    lda #$d8
+    sta colourIndirectHigh
     // First, get the Y location
     lda yPointer
     tax                     // transfer the y coord to the x register so we can count down rows                         
@@ -508,6 +517,14 @@ draw_to_screen: {
     lda screenIndirectHigh
     adc #0
     sta screenIndirectHigh
+    // Increment the colour row
+    clc
+    lda colourIndirectLow
+    adc #COLS_IN_ROW
+    sta colourIndirectLow
+    lda colourIndirectHigh
+    adc #0
+    sta colourIndirectHigh
     dex
     jmp !-
 !:
@@ -528,6 +545,14 @@ draw_to_screen: {
     // Now we can draw; doesn't matter if food already exists as it's cheap to re-write
     lda charPointer
     sta (screenIndirectLow), y
+    cmp #SNAKE_CHAR
+    beq colour_snake
+    lda #FOOD_COLOUR
+    jmp draw
+colour_snake:
+    lda #SNAKE_COLOUR
+draw:
+    sta (colourIndirectLow), y
 !:
     rts
 }
@@ -577,7 +602,7 @@ fix_stack_and_quit:
 
 // End the game
 game_over:
-    lda #RED
+    lda #PURPLE
     sta $d020
     sta $d021
     jmp *

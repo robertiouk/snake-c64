@@ -11,7 +11,6 @@ SYS 2064
 ## TODO
 - Implement game over
 - Display the score
-- Add colour
 - Add sound
 - Unit test
 - Handle (unlikely) game completion scenario
