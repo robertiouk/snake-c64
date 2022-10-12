@@ -9,7 +9,7 @@ SYS 2064
 ```
 
 ## TODO
-- Move the snake
+- Implement game over
 - Display the score
 - Add colour
 - Add sound

@@ -44,6 +44,7 @@ main:
     .const START_ROW = 11
     .const START_COL = 20
     .const QUIT_GAME = $ff
+    .const GAME_OVER = $0f
     .const FRAMES_PER_UPDATE = 4
     .const FRAME_COUNT = TEMP7
     // ROM functions
@@ -130,9 +131,13 @@ loop:
     lda (MEMORY_INDIRECT_LOW), y
     cmp #QUIT_GAME
     beq !+
+    cmp #GAME_OVER
+    beq end_game
     jmp loop
 !:
     jmp end
+end_game:
+    jsr game_over
 
 set_interrupt:
     sei             // disable interrupts
@@ -198,7 +203,14 @@ move_snake: {
     ldx #0              // use the x register to determine wheter food was eaten (1 = eaten)
     lda TEMP4
     cmp #FOOD_CHAR
+    beq eaten_food
+    cmp #SNAKE_CHAR
     bne !+
+game_over:
+    ldy #RUN_STATE_OFFSET
+    lda #GAME_OVER
+    sta (MEMORY_INDIRECT_LOW), y
+    rts
 eaten_food:
     // Got food
     jsr next_food
@@ -560,6 +572,13 @@ fix_stack_and_quit:
     pla
     jmp !-
 }
+
+// End the game
+game_over:
+    lda #RED
+    sta $d020
+    sta $d021
+    jmp *
 
 end:
     // Clear the screen
