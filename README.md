@@ -15,3 +15,4 @@ SYS 2064
 - Add sound
 - Unit test
 - Handle (unlikely) game completion scenario
+- Fix bug where left + down = up!?
