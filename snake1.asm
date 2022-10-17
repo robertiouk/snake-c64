@@ -1,6 +1,16 @@
 BasicUpstart(main)
 * = $0810
+jmp main
 
+TextMap:
+    .import binary "assets/snake_map.bin"
+
+ColourRamp:
+    .byte $01, $0d, $03, $0c, $04, $02, $09, $02, $04, $0c, $03, $0d, $01
+
+ColourIndex:
+    .byte $00
+    
 // Screen is 40 cols x 25 rows
 main:
     // Use $C000 to store the snake variables (for now)
@@ -53,6 +63,8 @@ main:
     .const SCAN_STOP = $ffe1
     .const CHAR_OUT = $ffd2
     .const GET_IN = $ffe4
+    .const SCREEN_RAM = $400
+    .const COLOUR_RAM = $d800 
     // Init. memory
     lda #MEMORY_START_LOW
     sta MEMORY_INDIRECT_LOW
@@ -78,12 +90,69 @@ main:
     //   x (column): 1 byte (index 8 + (segment * 2))
     //   y (row): 1 byte (index 9 + (segment * 3))
 init:
+    // Set charset
+    // Bits #1-#3: In text mode, pointer to character memory (bits #11-#13), relative to VIC bank, memory address $DD00. Values:
+    // %100, 4: $2000-$27FF, 8192-10239.
+    // %101, 5: $2800-$2FFF, 10240-12287.
+    // Bits #4-#7: Pointer to screen memory (bits #10-#13), relative to VIC bank, memory address $DD00. Values:
+    // %0001, 1: $0400-$07FF, 1024-2047. 
+    lda #%00011010   
+    sta $d018       // VIC memory control register
+
     // Set screen to black and clear all text
     lda #BLACK
     sta $d020
     sta $d021
-    lda #CLS_CHAR
-    jsr CHAR_OUT
+    //lda #CLS_CHAR
+   // jsr CHAR_OUT
+    lda #0
+    jsr clear_screen
+    
+    ldx #0
+!:
+    lda TextMap, x
+    // 12 rows down, 40 wide
+    sta SCREEN_RAM + 12 * 40, x
+    inx 
+    cpx #80 // text is 2 rows (2 * 40)
+    bne !-
+
+colour_loop:
+    .var coloursInRamp = 13
+    // Increment the colour ramp
+    ldx ColourIndex
+    inx
+    cpx #coloursInRamp      // the number of colours in ramp
+    bne !+
+    ldx #0
+!:
+    stx ColourIndex
+
+    // Begin plotting colours in a loop
+    ldy #0
+inner_loop:
+    lda ColourRamp, x
+    // COLOUR_RAM + row * cols in row + first character offset
+    sta COLOUR_RAM + 12 * 40 + 8, y
+    sta COLOUR_RAM + 13 * 40 + 8, y
+
+    inx         // colour index
+    cpx #coloursInRamp
+    bne !+
+    ldx #0
+!:
+    iny         // screen column index
+    cpy #22     // col 29 should be the last character index?
+    bne inner_loop
+
+    lda #$a0    // the raster line below the text
+!:
+    cmp $d012   // compare to the current raster line
+    bne !-
+
+    // Repeat
+    jmp colour_loop
+
     // Initialise variables
     lda #00
     ldy #00
@@ -113,6 +182,18 @@ init:
     inx                             // increment the segment number
     cpx #START_COL
     bne !-
+
+clear_screen: {
+    ldx #250
+!:
+    dex
+    sta SCREEN_RAM, x
+    sta SCREEN_RAM + 250, x
+    sta SCREEN_RAM + 500, x
+    sta SCREEN_RAM + 750, x
+    bne !-
+    rts
+}
 
 // lda $D41B will return a random number between 0-255
 init_random:
@@ -617,3 +698,6 @@ end:
     lda #BLUE
     sta $d021
     rts
+
+*= $2800
+.import binary "assets/charset.bin"
