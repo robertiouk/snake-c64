@@ -9,7 +9,6 @@ SYS 2064
 ```
 
 ## TODO
-- Implement game over
 - Display the score
 - Add sound
 - Unit test

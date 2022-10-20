@@ -2,8 +2,11 @@ BasicUpstart(main)
 * = $0810
 jmp main
 
-textMap:
+snakeTextMap:
     .import binary "assets/snake_map.bin"
+
+gameOverTextMap:
+    .import binary "assets/game_over_map.bin"
 
 colourRamp:
     .byte $01, $0d, $03, $0c, $04, $02, $09, $02, $04, $0c, $03, $0d, $01
@@ -109,7 +112,7 @@ init:
     
     ldx #0
 !:
-    lda textMap, x
+    lda snakeTextMap, x
     // 12 rows down, 40 wide
     sta SCREEN_RAM + 12 * 40, x
     inx 
@@ -150,10 +153,10 @@ inner_loop:
     bne !-
 
     jsr GET_IN
-    bne !+      // no input loads 0 into A (Z flag set means input read)
+    bne restart_game      // no input loads 0 into A (Z flag set means input read)
     // Repeat
     jmp colour_loop
-!:
+restart_game:
     jsr clear_screen
     // Initialise variables
     lda #00
@@ -202,15 +205,28 @@ loop:
     // Check game state
     ldy #RUN_STATE_OFFSET
     lda (MEMORY_INDIRECT_LOW), y
-    cmp #QUIT_GAME
-    beq !+
+  
     cmp #GAME_OVER
     beq end_game
     jmp loop
-!:
-    jmp end
 end_game:
-    jsr game_over
+    jsr game_over_interrupt
+!:
+    jsr GET_IN
+    beq !-
+    jmp restart_game
+
+game_over_interrupt:
+    sei
+    
+    // Set pointer for raster interrupt
+    lda #<game_over
+    sta $0314       // store in Vector: Hardware IRQ Interrupt
+    lda #>game_over
+    sta $0315
+
+    cli
+    rts
 
 set_interrupt:
     sei             // disable interrupts
@@ -685,22 +701,40 @@ clear_screen: {
 }
 
 // End the game
-game_over:
-    lda #PURPLE
-    sta $d020
-    sta $d021
-    jmp *
+game_over: {
+    //jsr clear_interrupt
+    inc $d019       // VIC Interrupt Flag Register (1 = IRQ occurred)
+    ldx #0
+!:
+    lda gameOverTextMap, x
+    // 12 rows down, 40 wide
+    sta SCREEN_RAM + 12 * 40, x
+    inx 
+    cpx #80 // text is 2 rows (2 * 40)
+    bne !-
 
-end:
-    // Clear the screen
-    lda #CLS_CHAR
-    jsr CHAR_OUT
-    // Reset screen colour
-    lda #LIGHT_BLUE
-    sta $d020
-    lda #BLUE
-    sta $d021
-    rts
+    // Loop colours
+    ldx colourIndex
+    ldy #0
+colour_loop:  
+    lda colourRamp, x
+    sta COLOUR_RAM + 12 * 40, y
+    sta COLOUR_RAM + 13 * 40, y
+
+    inx
+    cpx #coloursInRamp
+    bcc !+
+    ldx #0
+!:
+    stx colourIndex
+    iny
+    cpy #40
+    bcc colour_loop
+    ldy #0
+!:
+//    jmp colour_loop
+    jmp $ea31       // Restores A, X & Y registers and CPU flags before returning from interrupt
+}
 
 *= $2800
 .import binary "assets/charset.bin"
