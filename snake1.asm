@@ -2,13 +2,13 @@ BasicUpstart(main)
 * = $0810
 jmp main
 
-TextMap:
+textMap:
     .import binary "assets/snake_map.bin"
 
-ColourRamp:
+colourRamp:
     .byte $01, $0d, $03, $0c, $04, $02, $09, $02, $04, $0c, $03, $0d, $01
 
-ColourIndex:
+colourIndex:
     .byte $00
     
 // Screen is 40 cols x 25 rows
@@ -32,9 +32,9 @@ main:
     .const COLS_IN_ROW = 40
     .const ROWS_IN_COL = 25
     // The character for drawing
-    .const FOOD_CHAR = 88
-    .const BLANK_CHAR = 32
-    .const SNAKE_CHAR = 81
+    .const FOOD_CHAR = 106
+    .const BLANK_CHAR = 0
+    .const SNAKE_CHAR = 105
     .const CLS_CHAR = 147
     .const FOOD_COLOUR = GREEN
     .const SNAKE_COLOUR = RED
@@ -105,12 +105,11 @@ init:
     sta $d021
     //lda #CLS_CHAR
    // jsr CHAR_OUT
-    lda #0
     jsr clear_screen
     
     ldx #0
 !:
-    lda TextMap, x
+    lda textMap, x
     // 12 rows down, 40 wide
     sta SCREEN_RAM + 12 * 40, x
     inx 
@@ -120,18 +119,18 @@ init:
 colour_loop:
     .var coloursInRamp = 13
     // Increment the colour ramp
-    ldx ColourIndex
+    ldx colourIndex
     inx
     cpx #coloursInRamp      // the number of colours in ramp
     bne !+
     ldx #0
 !:
-    stx ColourIndex
+    stx colourIndex
 
     // Begin plotting colours in a loop
     ldy #0
 inner_loop:
-    lda ColourRamp, x
+    lda colourRamp, x
     // COLOUR_RAM + row * cols in row + first character offset
     sta COLOUR_RAM + 12 * 40 + 8, y
     sta COLOUR_RAM + 13 * 40 + 8, y
@@ -142,7 +141,7 @@ inner_loop:
     ldx #0
 !:
     iny         // screen column index
-    cpy #22     // col 29 should be the last character index?
+    cpy #22     // col 29 is the last character index? 29-8 = 21 the final char
     bne inner_loop
 
     lda #$a0    // the raster line below the text
@@ -150,9 +149,12 @@ inner_loop:
     cmp $d012   // compare to the current raster line
     bne !-
 
+    jsr GET_IN
+    bne !+      // no input loads 0 into A (Z flag set means input read)
     // Repeat
     jmp colour_loop
-
+!:
+    jsr clear_screen
     // Initialise variables
     lda #00
     ldy #00
@@ -182,18 +184,6 @@ inner_loop:
     inx                             // increment the segment number
     cpx #START_COL
     bne !-
-
-clear_screen: {
-    ldx #250
-!:
-    dex
-    sta SCREEN_RAM, x
-    sta SCREEN_RAM + 250, x
-    sta SCREEN_RAM + 500, x
-    sta SCREEN_RAM + 750, x
-    bne !-
-    rts
-}
 
 // lda $D41B will return a random number between 0-255
 init_random:
@@ -679,6 +669,19 @@ store:
 fix_stack_and_quit:
     pla
     jmp !-
+}
+
+clear_screen: {
+    lda #0
+    ldx #250
+!:
+    dex
+    sta SCREEN_RAM, x
+    sta SCREEN_RAM + 250, x
+    sta SCREEN_RAM + 500, x
+    sta SCREEN_RAM + 750, x
+    bne !-
+    rts
 }
 
 // End the game
