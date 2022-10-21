@@ -8,6 +8,9 @@ snakeTextMap:
 gameOverTextMap:
     .import binary "assets/game_over_map.bin"
 
+windowMap:
+    .import binary "assets/window.bin"
+
 colourRamp:
     .byte $01, $0d, $03, $0c, $04, $02, $09, $02, $04, $0c, $03, $0d, $01
 
@@ -32,8 +35,12 @@ main:
     // Top of screen memory (page)
     .const SCREEN_MEMORY_PAGE = $0288
     // Screen columns & rows
-    .const COLS_IN_ROW = 40
-    .const ROWS_IN_COL = 25
+    .const MIN_WINDOW_COL = 1
+    .const MIN_WINDOW_ROW = 1
+    .const MAX_WINDOW_COL = 38
+    .const MAX_WINDOW_ROW = 19
+    .const MAX_COL = 40
+    .const MAX_ROW = 20
     // The character for drawing
     .const FOOD_CHAR = 106
     .const BLANK_CHAR = 0
@@ -157,7 +164,30 @@ inner_loop:
     // Repeat
     jmp colour_loop
 restart_game:
+    // Load window
+    jsr set_interrupt
     jsr clear_screen
+    ldx #210
+draw_row:
+    dex
+    // Draw segments
+    lda windowMap, x
+    sta SCREEN_RAM, x  
+    lda windowMap + 210, x
+    sta SCREEN_RAM + 210, x
+    lda windowMap + 420, x
+    sta SCREEN_RAM + 420, x   
+    lda windowMap + 630, x
+    sta SCREEN_RAM + 630, x
+    // Set colours
+    lda #LIGHT_GREY
+    sta COLOUR_RAM, x
+    sta COLOUR_RAM + 210, x
+    sta COLOUR_RAM + 420, x
+    sta COLOUR_RAM + 630, x
+    cpx #0
+    bne draw_row 
+
     // Initialise variables
     lda #00
     ldy #00
@@ -197,7 +227,7 @@ init_random:
     sta $D412 // voice 3 control register
 
     jsr draw_food
-    jsr set_interrupt
+    //jsr set_interrupt
     // Main game loop
 loop:
     jsr read_inputs
@@ -236,7 +266,7 @@ set_interrupt:
     // Setup raster interrupt
     and $d011       // clear the high bit
     sta $d011
-    lda #100        // this will set the IRQ to trigger on raster line 100
+    lda #255        // this will set the IRQ to trigger on raster line 100
     sta $d012
     // Set pointer for raster interrupt
     lda #<my_interrupt
@@ -376,8 +406,9 @@ move_head:
     dex
     txa
     // If < 0 row then wrap around
-    bpl !+                      // if positive number (not < 0) then skip the next bit
-    lda #ROWS_IN_COL - 1
+    cmp #MIN_WINDOW_ROW - 1
+    bne !+                      // if positive number (not < 0) then skip the next bit
+    lda #MAX_ROW - 1
 !:
     sta (snakeIndirectLow), y   // store the modified value
     jmp done
@@ -392,9 +423,9 @@ move_head:
     inx
     txa
     // if > max rows then wrap around
-    cmp #ROWS_IN_COL
+    cmp #MAX_WINDOW_ROW + 1
     bne !+                      // if not equal then skip the next bit
-    lda #0
+    lda #MIN_WINDOW_ROW
 !:
     sta (snakeIndirectLow), y   // store the modified value
     jmp done
@@ -409,8 +440,9 @@ move_head:
     dex
     txa
     // if < 0 col then wrap around
-    bpl !+
-    lda #COLS_IN_ROW - 1
+    cmp #MIN_WINDOW_COL - 1
+    bne !+
+    lda #MAX_WINDOW_COL - 1
 !:
     sta (snakeIndirectLow), y
     jmp done
@@ -425,9 +457,9 @@ move_head:
     inx
     txa
     // if > max col then wrap around
-    cmp #COLS_IN_ROW
+    cmp #MAX_WINDOW_COL + 1
     bne !+
-    lda #0
+    lda #MIN_WINDOW_COL
 !:
     sta (snakeIndirectLow), y
 done:
@@ -514,19 +546,25 @@ draw_the_char:
 // This is not a very good way of getting random coords as it produces a bias due to the 
 // handling of overflowed values.
 next_food:
-    lda $d41b       // get the random number
     ldy #FOOD_OFFSET
-    and #%11_1111    // 39 (max col) is 100111
-    cmp #40
-    bcc !+           // < 40 so ok
-    eor #%11_1111    // if number is greater than 39 then flip the bits
+    lda $d41b       // get the random number
+    and #%11_1111
+    clc
+    adc #MIN_WINDOW_COL
+    cmp #MAX_WINDOW_COL + 2 - MIN_WINDOW_COL
+    bcc !+           // < max so ok
+    sec 
+    sbc #MAX_WINDOW_COL // subtract the max
 !:
     sta (MEMORY_INDIRECT_LOW), y    // food x
     lda $d41b       // next random number
-    and #%1_1111         // 24 (max row) is 11000
-    cmp #25         
-    bcc !+        // < 25 so ok
-    eor #%1_1111
+    and #%1_1111
+    clc
+    adc #MIN_WINDOW_ROW  
+    cmp #MAX_WINDOW_ROW + 2 - MIN_WINDOW_ROW
+    bcc !+        // < max so ok
+    sec
+    sbc #MAX_WINDOW_ROW
 !:
     iny
     sta (MEMORY_INDIRECT_LOW), y   // food y
@@ -599,7 +637,7 @@ draw_to_screen: {
     // Increment the screen row
     clc
     lda screenIndirectLow
-    adc #COLS_IN_ROW
+    adc #MAX_COL
     sta screenIndirectLow
     lda screenIndirectHigh
     adc #0
@@ -607,7 +645,7 @@ draw_to_screen: {
     // Increment the colour row
     clc
     lda colourIndirectLow
-    adc #COLS_IN_ROW
+    adc #MAX_COL
     sta colourIndirectLow
     lda colourIndirectHigh
     adc #0
@@ -687,6 +725,8 @@ fix_stack_and_quit:
     jmp !-
 }
 
+// Clear the screen.
+// - Screen is 1000 chars so clear in chunks of 250
 clear_screen: {
     lda #0
     ldx #250
