@@ -203,6 +203,8 @@ draw_row:
     sta (MEMORY_INDIRECT_LOW), y
     iny
     sta (MEMORY_INDIRECT_LOW), y    // score = 0
+    iny
+    sta (MEMORY_INDIRECT_LOW), y    // score high byte
     // Initialise the snake
     ldy #SIZE_OFFSET
     lda #INIT_SNAKE_SIZE
@@ -246,12 +248,8 @@ init_random:
     inx 
     lda #120
     sta SCREEN_RAM + scoreRow * MAX_COL + 1, x
-    // Clear any trailing zeros from previous score
-    inx
-    lda #0
-    sta SCREEN_RAM + scoreRow * MAX_COL + 1, x
-    inx
-    sta SCREEN_RAM + scoreRow * MAX_COL + 1, x
+    // Draw the score
+    jsr draw_score
 
     jsr draw_food
     //jsr set_interrupt
@@ -385,38 +383,7 @@ eaten_food:
     sta (MEMORY_INDIRECT_LOW), y    // high byte
     cld                             // Turn off BCD mode
     // **************** Display the score *****************************
-    // Thousands column...
-    tay
-    lsr
-    lsr
-    lsr
-    lsr
-    tax
-    lda digits, x
-    sta SCREEN_RAM + scoreRow * MAX_COL + 7
-    // Hundreds column...
-    tya
-    and #$0f
-    tax
-    lda digits, x
-    sta SCREEN_RAM + scoreRow * MAX_COL + 8 
-    // Tens column...
-    ldy #SCORE_OFFSET
-    lda (MEMORY_INDIRECT_LOW), y
-    tay
-    lsr
-    lsr
-    lsr
-    lsr
-    tax
-    lda digits, x
-    sta SCREEN_RAM + scoreRow * MAX_COL + 9
-    // Units column...
-    tya
-    and #$0f
-    tax
-    lda digits, x
-    sta SCREEN_RAM + scoreRow * MAX_COL + 10
+    jsr draw_score
     ldx #1              // food eaten
 !:
     // Shift the snake segments down
@@ -535,6 +502,45 @@ move_head:
 !:
     sta (snakeIndirectLow), y
 done:
+    rts
+}
+
+// Draw the score as Thousands, Hundreds, Tens and Units
+draw_score: {
+    ldy #SCORE_OFFSET + 1
+    lda (MEMORY_INDIRECT_LOW), y
+    // Thousands column...
+    tay
+    lsr
+    lsr
+    lsr
+    lsr
+    tax
+    lda digits, x
+    sta SCREEN_RAM + scoreRow * MAX_COL + 7
+    // Hundreds column...
+    tya
+    and #$0f
+    tax
+    lda digits, x
+    sta SCREEN_RAM + scoreRow * MAX_COL + 8 
+    // Tens column...
+    ldy #SCORE_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    tay
+    lsr
+    lsr
+    lsr
+    lsr
+    tax
+    lda digits, x
+    sta SCREEN_RAM + scoreRow * MAX_COL + 9
+    // Units column...
+    tya
+    and #$0f
+    tax
+    lda digits, x
+    sta SCREEN_RAM + scoreRow * MAX_COL + 10
     rts
 }
 
