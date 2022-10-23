@@ -14,6 +14,9 @@ windowMap:
 colourRamp:
     .byte $01, $0d, $03, $0c, $04, $02, $09, $02, $04, $0c, $03, $0d, $01
 
+score:
+    .byte $73, $74, $75, $76, $77
+
 colourIndex:
     .byte $00
     
@@ -27,6 +30,7 @@ main:
     .const MEMORY_INDIRECT_HIGH = $fc
     // Object memory offsets
     .const RUN_STATE_OFFSET = 0
+    .const SCORE_OFFSET = 1
     .const FOOD_OFFSET = 3
     .const SIZE_OFFSET = 5
     .const DIRECTION_OFFSET = 7
@@ -69,6 +73,7 @@ main:
     .const GAME_OVER = $0f
     .const FRAMES_PER_UPDATE = 4
     .const FRAME_COUNT = TEMP7
+    .const POINTS_PER_FOOD = 5
     // ROM functions / memory locations
     .const SCAN_STOP = $ffe1
     .const CHAR_OUT = $ffd2
@@ -226,6 +231,25 @@ init_random:
     lda #$80  // noise waveform, gate bit off
     sta $D412 // voice 3 control register
 
+    // Display the score label
+    .var scoreRow = 22
+    ldx #0
+!:
+    lda score, x
+    sta SCREEN_RAM + scoreRow * MAX_COL + 1, x
+    inx
+    cpx #5
+    bne !-
+    inx 
+    lda #120
+    sta SCREEN_RAM + scoreRow * MAX_COL + 1, x
+    // Clear any trailing zeros from previous score
+    inx
+    lda #0
+    sta SCREEN_RAM + scoreRow * MAX_COL + 1, x
+    inx
+    sta SCREEN_RAM + scoreRow * MAX_COL + 1, x
+
     jsr draw_food
     //jsr set_interrupt
     // Main game loop
@@ -346,6 +370,23 @@ eaten_food:
     adc #0
     sta (MEMORY_INDIRECT_LOW), y
     ldx #1              // food eaten
+    // Increment score
+    sed                             // Set BCD mode
+    ldy #SCORE_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y    // get the current score
+    clc
+    adc #POINTS_PER_FOOD
+    sta (MEMORY_INDIRECT_LOW), y
+    iny
+    lda (MEMORY_INDIRECT_LOW), y
+    adc #0
+    sta (MEMORY_INDIRECT_LOW), y
+    cld                             // Turn off BCD mode
+    // Display the score
+    ldy #SCORE_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    and $0F
+    
 !:
     // Shift the snake segments down
     ldy #SEGMENT_OFFSET + SEGMENT_SIZE  // Get the x value of the next segment to current
@@ -442,7 +483,7 @@ move_head:
     // if < 0 col then wrap around
     cmp #MIN_WINDOW_COL - 1
     bne !+
-    lda #MAX_WINDOW_COL - 1
+    lda #MAX_WINDOW_COL
 !:
     sta (snakeIndirectLow), y
     jmp done
@@ -736,6 +777,17 @@ clear_screen: {
     sta SCREEN_RAM + 250, x
     sta SCREEN_RAM + 500, x
     sta SCREEN_RAM + 750, x
+    bne !-
+    rts
+}
+
+display_score: {
+    ldx #0
+!:
+    lda score, x
+    sta SCREEN_RAM + 22 * 40 + 1, x
+    inx
+    cpx #5
     bne !-
     rts
 }
