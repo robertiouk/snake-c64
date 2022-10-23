@@ -17,6 +17,9 @@ colourRamp:
 score:
     .byte $73, $74, $75, $76, $77
 
+digits:
+    .byte $78, $79, $7a, $7b, $7c, $7d, $7e, $7f, $80, $81
+
 colourIndex:
     .byte $00
     
@@ -369,24 +372,52 @@ eaten_food:
     lda (MEMORY_INDIRECT_LOW), y
     adc #0
     sta (MEMORY_INDIRECT_LOW), y
-    ldx #1              // food eaten
-    // Increment score
+    // ***************** Increment score ******************************
     sed                             // Set BCD mode
     ldy #SCORE_OFFSET
     lda (MEMORY_INDIRECT_LOW), y    // get the current score
     clc
     adc #POINTS_PER_FOOD
-    sta (MEMORY_INDIRECT_LOW), y
+    sta (MEMORY_INDIRECT_LOW), y    // low byte
     iny
     lda (MEMORY_INDIRECT_LOW), y
     adc #0
-    sta (MEMORY_INDIRECT_LOW), y
+    sta (MEMORY_INDIRECT_LOW), y    // high byte
     cld                             // Turn off BCD mode
-    // Display the score
+    // **************** Display the score *****************************
+    // Thousands column...
+    tay
+    lsr
+    lsr
+    lsr
+    lsr
+    tax
+    lda digits, x
+    sta SCREEN_RAM + scoreRow * MAX_COL + 7
+    // Hundreds column...
+    tya
+    and #$0f
+    tax
+    lda digits, x
+    sta SCREEN_RAM + scoreRow * MAX_COL + 8 
+    // Tens column...
     ldy #SCORE_OFFSET
     lda (MEMORY_INDIRECT_LOW), y
-    and $0F
-    
+    tay
+    lsr
+    lsr
+    lsr
+    lsr
+    tax
+    lda digits, x
+    sta SCREEN_RAM + scoreRow * MAX_COL + 9
+    // Units column...
+    tya
+    and #$0f
+    tax
+    lda digits, x
+    sta SCREEN_RAM + scoreRow * MAX_COL + 10
+    ldx #1              // food eaten
 !:
     // Shift the snake segments down
     ldy #SEGMENT_OFFSET + SEGMENT_SIZE  // Get the x value of the next segment to current
