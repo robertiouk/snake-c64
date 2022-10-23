@@ -55,6 +55,7 @@ main:
     .const CLS_CHAR = 147
     .const FOOD_COLOUR = GREEN
     .const SNAKE_COLOUR = RED
+    .const SCORE_COLOUR = ORANGE
     // Snake directions (based on ASCII)
     .const UP_DIRECTION = 145
     .const RIGHT_DIRECTION = 29
@@ -77,6 +78,7 @@ main:
     .const FRAMES_PER_UPDATE = 4
     .const FRAME_COUNT = TEMP7
     .const POINTS_PER_FOOD = 5
+    .const SCORE_ROW = 22
     // ROM functions / memory locations
     .const SCAN_STOP = $ffe1
     .const CHAR_OUT = $ffd2
@@ -237,17 +239,20 @@ init_random:
     sta $D412 // voice 3 control register
 
     // Display the score label
-    .var scoreRow = 22
     ldx #0
 !:
     lda score, x
-    sta SCREEN_RAM + scoreRow * MAX_COL + 1, x
+    sta SCREEN_RAM + SCORE_ROW * MAX_COL + 1, x
+    lda #SCORE_COLOUR
+    sta COLOUR_RAM + SCORE_ROW * MAX_COL + 1, x
     inx
     cpx #5
     bne !-
     inx 
     lda #120
-    sta SCREEN_RAM + scoreRow * MAX_COL + 1, x
+    sta SCREEN_RAM + SCORE_ROW * MAX_COL + 1, x
+    lda #SCORE_COLOUR
+    sta COLOUR_RAM + SCORE_ROW * MAX_COL + 1, x
     // Draw the score
     jsr draw_score
 
@@ -505,7 +510,8 @@ done:
     rts
 }
 
-// Draw the score as Thousands, Hundreds, Tens and Units
+// Draw the score as Thousands, Hundreds, Tens and Units.
+// - score is stored in BCD
 draw_score: {
     ldy #SCORE_OFFSET + 1
     lda (MEMORY_INDIRECT_LOW), y
@@ -517,13 +523,17 @@ draw_score: {
     lsr
     tax
     lda digits, x
-    sta SCREEN_RAM + scoreRow * MAX_COL + 7
+    sta SCREEN_RAM + SCORE_ROW * MAX_COL + 7
+    lda #SCORE_COLOUR
+    sta COLOUR_RAM + SCORE_ROW * MAX_COL + 7
     // Hundreds column...
     tya
     and #$0f
     tax
     lda digits, x
-    sta SCREEN_RAM + scoreRow * MAX_COL + 8 
+    sta SCREEN_RAM + SCORE_ROW * MAX_COL + 8 
+    lda #SCORE_COLOUR
+    sta COLOUR_RAM + SCORE_ROW * MAX_COL + 8
     // Tens column...
     ldy #SCORE_OFFSET
     lda (MEMORY_INDIRECT_LOW), y
@@ -534,13 +544,17 @@ draw_score: {
     lsr
     tax
     lda digits, x
-    sta SCREEN_RAM + scoreRow * MAX_COL + 9
+    sta SCREEN_RAM + SCORE_ROW * MAX_COL + 9
+    lda #SCORE_COLOUR
+    sta COLOUR_RAM + SCORE_ROW * MAX_COL + 9
     // Units column...
     tya
     and #$0f
     tax
     lda digits, x
-    sta SCREEN_RAM + scoreRow * MAX_COL + 10
+    sta SCREEN_RAM + SCORE_ROW * MAX_COL + 10
+    lda #SCORE_COLOUR
+    sta COLOUR_RAM + SCORE_ROW * MAX_COL + 10
     rts
 }
 
