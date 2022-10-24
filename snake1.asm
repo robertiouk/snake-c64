@@ -218,17 +218,19 @@ draw_row:
     ldy #DIRECTION_OFFSET
     sta (MEMORY_INDIRECT_LOW), y    // set the direction
     ldy #SEGMENT_OFFSET
-    ldx #START_COL - INIT_SNAKE_SIZE
-!:
-    txa                             // get the current column 
-    sta (MEMORY_INDIRECT_LOW), y    // set segment x
+    // Set the start location
+    lda #START_COL 
+    sta (MEMORY_INDIRECT_LOW), y    // set head segment
     lda #START_ROW
     iny
     sta (MEMORY_INDIRECT_LOW), y    // set segment y
-    iny                             // ready for next segment...
-    inx                             // increment the segment number
-    cpx #START_COL
-    bne !-
+    // Set the tail location
+    iny
+    lda #START_COL - INIT_SNAKE_SIZE
+    sta (MEMORY_INDIRECT_LOW), y    // set tail segment
+    lda #START_ROW
+    iny
+    sta (MEMORY_INDIRECT_LOW), y    // set segment y
 
 // lda $D41B will return a random number between 0-255
 init_random:
@@ -326,8 +328,84 @@ my_interrupt:
     
     jmp $ea31       // Restores A, X & Y registers and CPU flags before returning from interrupt
 
-// Move the snake by shifting segments down array.
 move_snake: {
+    // Move the head
+    // Get the current direction
+    ldy #DIRECTION_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    // ------------ UP ---------------
+    cmp #UP_DIRECTION
+    bne !++
+    ldy #SEGMENT_OFFSET + 1    // get Y
+    lda (MEMORY_INDIRECT_LOW), y
+    // Decrement y
+    tax
+    dex
+    txa
+    // If < 0 row then wrap around
+    cmp #MIN_WINDOW_ROW - 1
+    bne !+                      // if positive number (not < 0) then skip the next bit
+    lda #MAX_ROW - 1
+!:
+    sta (MEMORY_INDIRECT_LOW), y   // store the modified value
+    jmp done
+!:
+    // ------------ DOWN ---------------
+    cmp #DOWN_DIRECTION
+    bne !++
+    ldy #SEGMENT_OFFSET + 1    // get Y
+    lda (MEMORY_INDIRECT_LOW), y
+    // Increment y
+    tax
+    inx
+    txa
+    // if > max rows then wrap around
+    cmp #MAX_WINDOW_ROW + 1
+    bne !+                      // if not equal then skip the next bit
+    lda #MIN_WINDOW_ROW
+!:
+    sta (MEMORY_INDIRECT_LOW), y   // store the modified value
+    jmp done
+!:
+    // ------------ LEFT ---------------
+    cmp #LEFT_DIRECTION
+    bne !++
+    ldy #SEGMENT_OFFSET        // get x
+    lda (MEMORY_INDIRECT_LOW), y
+    // Decrement x
+    tax
+    dex
+    txa
+    // if < 0 col then wrap around
+    cmp #MIN_WINDOW_COL - 1
+    bne !+
+    lda #MAX_WINDOW_COL
+!:
+    sta (MEMORY_INDIRECT_LOW), y
+    jmp done
+!:
+    // ------------ RIGHT ---------------
+    cmp #RIGHT_DIRECTION
+    bne !+
+    ldy #SEGMENT_OFFSET        // get x
+    lda (MEMORY_INDIRECT_LOW), y
+    // Increment x
+    tax
+    inx
+    txa
+    // if > max col then wrap around
+    cmp #MAX_WINDOW_COL + 1
+    bne !+
+    lda #MIN_WINDOW_COL
+!:
+    sta (MEMORY_INDIRECT_LOW), y
+done:
+    // Move the tail along
+    rts
+}
+
+// Move the snake by shifting segments down array.
+move_snake_old: {
     .var snakeIndirectLow = $fd
     .var snakeIndirectHigh = $fe    
     .var currentSegmentIndexLow = TEMP5  // This will hold the current segment index
@@ -565,65 +643,34 @@ draw_snake: {
     .var xPointer = TEMP1
     .var yPointer = TEMP2
     .var charPointer = TEMP3
-     // Set up zero page variables
-    .var snakeIndirectLow = $fd
-    .var snakeIndirectHigh = $fe
-    .var currentSegmentIndexLow = TEMP5  // This will hold the current segment index
-    .var currentSegmentIndexHigh = TEMP6
-    lda MEMORY_INDIRECT_LOW
-    sta snakeIndirectLow
-    lda MEMORY_INDIRECT_HIGH
-    sta snakeIndirectHigh 
-    // Push segment tracking to temp variables (2 bytes init to 0)  
-    lda #0
-    sta currentSegmentIndexLow
-    sta currentSegmentIndexHigh 
     // Now start the drawing...
 draw_next_segment:
     // Draw next segment
     // Get the x location of the segment
     ldy #SEGMENT_OFFSET
-    lda (snakeIndirectLow), y
+    lda (MEMORY_INDIRECT_LOW), y
     sta xPointer
-    // Get the y location of the segnebt
+    // Get the y location of the segment
     iny
-    lda (snakeIndirectLow), y       
+    lda (MEMORY_INDIRECT_LOW), y       
     sta yPointer
-    // Work out which character to draw (end of tail is blank)
-    lda currentSegmentIndexHigh
-    bne !+
-    lda currentSegmentIndexLow
-    bne !+
-    lda #BLANK_CHAR         // if we've got here then this is the first segment (end of tail)
-    jmp draw_the_char
-!:
     lda #SNAKE_CHAR
-draw_the_char:
+    // Draw the char
     sta charPointer
     jsr draw_to_screen
-    // Increment the current segment count
-    clc
-    inc currentSegmentIndexLow
-    lda currentSegmentIndexHigh
-    adc #0
-    sta currentSegmentIndexHigh
-    // Increment current segment reference
-    clc
-    lda snakeIndirectLow
-    adc #SEGMENT_SIZE
-    sta snakeIndirectLow
-    lda snakeIndirectHigh
-    adc #0
-    sta snakeIndirectHigh
-    // Are there any more segments to draw?
-    lda currentSegmentIndexLow
-    ldy #SIZE_OFFSET
-    cmp (MEMORY_INDIRECT_LOW), y
-    bne draw_next_segment
-    lda currentSegmentIndexHigh
+    // Draw the tail (blank char)
+    ldy #SEGMENT_OFFSET + SEGMENT_SIZE
+    // Get x location
+    lda (MEMORY_INDIRECT_LOW), y
+    sta xPointer
+    // Get y location
     iny
-    cmp (MEMORY_INDIRECT_LOW), y
-    bne draw_next_segment
+    lda (MEMORY_INDIRECT_LOW), y
+    sta yPointer
+    lda #BLANK_CHAR
+    // Draw the char
+    sta charPointer
+    jsr draw_to_screen
     rts
 }
 
