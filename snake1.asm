@@ -38,6 +38,8 @@ main:
     .const SIZE_OFFSET = 5
     .const DIRECTION_OFFSET = 7
     .const SEGMENT_OFFSET = 8
+    .const LAST_SEGMENT_OFFSET = 10
+    .const TAIL_SEGMENT_OFFSET = 13
     .const SEGMENT_SIZE = 2
     // Top of screen memory (page)
     .const SCREEN_MEMORY_PAGE = $0288
@@ -48,14 +50,22 @@ main:
     .const MAX_WINDOW_ROW = 19
     .const MAX_COL = 40
     .const MAX_ROW = 20
-    // The character for drawing
+    // The characters for drawing
     .const FOOD_CHAR = 106
     .const BLANK_CHAR = 0
-    .const SNAKE_CHAR = 105
     .const CLS_CHAR = 147
     .const FOOD_COLOUR = GREEN
     .const SNAKE_COLOUR = RED
     .const SCORE_COLOUR = ORANGE
+    // Snake chars (head, straight, curve1, curve2, tail)
+snakeUp:
+    .byte $8b, $85, $83, $84, $8c  // curve1 = left, curve2 = right
+snakeDown:
+    .byte $8a, $85, $86, $87, $8d  // curve1 = left, curve2 = right
+snakeLeft:
+    .byte $89, $82, $83, $87, $8f  // curve1 = down, curve2 = up
+snakeRight:
+    .byte $88, $82, $84, $86, $8e  // curve1 = down, curve2 = up
     // Snake directions (based on ASCII)
     .const UP_DIRECTION = 145
     .const RIGHT_DIRECTION = 29
@@ -104,11 +114,21 @@ main:
     // size: 2 bytes (index 5)
     // direction: 1 byte (index 7)
     //
-    //   Segment
-    //   - The first segment in the array is blank
+    //   Segment (head)
     //   ---------
-    //   x (column): 1 byte (index 8 + (segment * 2))
-    //   y (row): 1 byte (index 9 + (segment * 3))
+    //   x (column): 1 byte (index 8)
+    //   y (row): 1 byte (index 9)
+    //  
+    //   Last Segment
+    //   ------------
+    //   x: 1 byte (index 10)
+    //   y: 1 byte (index 11)
+    //   direction: 1 byte (index 12)
+    //  
+    //   Tail Segment
+    //   ------------
+    //   x: 1 byte (index 13)
+    //   y: 1 byte (index 14)
 init:
     // Set charset
     // Bits #1-#3: In text mode, pointer to character memory (bits #11-#13), relative to VIC bank, memory address $DD00. Values:
@@ -224,13 +244,24 @@ draw_row:
     lda #START_ROW
     iny
     sta (MEMORY_INDIRECT_LOW), y    // set segment y
-    // Set the tail location
+    // Set the body location
     iny
-    lda #START_COL - INIT_SNAKE_SIZE
-    sta (MEMORY_INDIRECT_LOW), y    // set tail segment
+    lda #START_COL - 1
+    sta (MEMORY_INDIRECT_LOW), y    // set body segment
     lda #START_ROW
     iny
+    lda #START_ROW
     sta (MEMORY_INDIRECT_LOW), y    // set segment y
+    lda #RIGHT_DIRECTION
+    iny
+    sta (MEMORY_INDIRECT_LOW), y
+    // Set the tail location
+    lda #START_COL - 2
+    iny
+    sta (MEMORY_INDIRECT_LOW), y
+    lda #START_ROW
+    iny
+    sta (MEMORY_INDIRECT_LOW), y
 
 // lda $D41B will return a random number between 0-255
 init_random:
@@ -329,6 +360,15 @@ my_interrupt:
     jmp $ea31       // Restores A, X & Y registers and CPU flags before returning from interrupt
 
 move_snake: {
+    // ----------------------- Shift segments ---------------------------
+    ldy #SEGMENT_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    ldy #LAST_SEGMENT_OFFSET
+    sta (MEMORY_INDIRECT_LOW), y    // shift x
+    ldy #SEGMENT_OFFSET + 1
+    lda (MEMORY_INDIRECT_LOW), y
+    ldy #LAST_SEGMENT_OFFSET + 1
+    sta (MEMORY_INDIRECT_LOW), y    // shift y
     // Move the head
     // Get the current direction
     ldy #DIRECTION_OFFSET
@@ -400,7 +440,6 @@ move_snake: {
 !:
     sta (MEMORY_INDIRECT_LOW), y
 done:
-    // Move the tail along
     rts
 }
 
@@ -432,8 +471,8 @@ move_snake_old: {
     lda TEMP4
     cmp #FOOD_CHAR
     beq eaten_food
-    cmp #SNAKE_CHAR
-    bne !+
+    cmp #$82            // this is the lowest snake char - check for greater than or equals to
+    bcc !+
 game_over:
     ldy #RUN_STATE_OFFSET
     lda #GAME_OVER
@@ -643,9 +682,13 @@ draw_snake: {
     .var xPointer = TEMP1
     .var yPointer = TEMP2
     .var charPointer = TEMP3
+    .var lastDirection = TEMP4
     // Now start the drawing...
-draw_next_segment:
-    // Draw next segment
+    // First, get the previous direction
+    ldy #LAST_SEGMENT_OFFSET + 2
+    lda (MEMORY_INDIRECT_LOW), y
+    sta lastDirection
+    // -------------- Work out the body segments --------------------
     // Get the x location of the segment
     ldy #SEGMENT_OFFSET
     lda (MEMORY_INDIRECT_LOW), y
@@ -654,12 +697,127 @@ draw_next_segment:
     iny
     lda (MEMORY_INDIRECT_LOW), y       
     sta yPointer
-    lda #SNAKE_CHAR
+    // Get the current direction
+    ldy #DIRECTION_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    // Work out which body segments to paint
+    cmp #UP_DIRECTION
+    bne !+
+    ldx #4
+    lda snakeUp, x          // tail segment
+    pha
+    lda lastDirection
+    cmp #LEFT_DIRECTION
+    bne !else+
+    ldx #3
+    lda snakeUp, x          // turning left
+    pha 
+    jmp !get_head+
+!else:
+    cmp #RIGHT_DIRECTION
+    bne !else+
+    ldx #2
+    lda snakeUp, x          // turning right
+    pha
+    jmp !get_head+
+!else:
+    ldx #1
+    lda snakeUp, x          // going up
+    pha
+!get_head:
+    ldx #0
+    lda snakeUp, x          // get the head
+    jmp end_if
+!:
+    cmp #DOWN_DIRECTION
+    bne !+
+    ldx #4
+    lda snakeDown, x          // tail segment
+    pha
+    lda lastDirection
+    cmp #LEFT_DIRECTION
+    bne !else+
+    ldx #2
+    lda snakeDown, x          // turning left
+    pha 
+    jmp !get_head+
+!else:
+    cmp #RIGHT_DIRECTION
+    bne !else+
+    ldx #3
+    lda snakeDown, x          // turning right
+    pha
+    jmp !get_head+
+!else:
+    ldx #1
+    lda snakeUp, x          // going up
+    pha
+!get_head:
+    ldx #0
+    lda snakeDown, x        // get the head
+    jmp end_if
+!:
+    cmp #LEFT_DIRECTION
+    bne !+
+    ldx #4
+    lda snakeLeft, x          // tail segment
+    pha
+    lda lastDirection
+    cmp #DOWN_DIRECTION
+    bne !else+
+    ldx #2
+    lda snakeLeft, x          // turning down
+    pha 
+    jmp !get_head+
+!else:
+    cmp #UP_DIRECTION
+    bne !else+
+    ldx #3
+    lda snakeLeft, x          // turning up
+    pha
+    jmp !get_head+
+!else:
+    ldx #1
+    lda snakeLeft, x          // going left
+    pha
+!get_head:
+    ldx #0
+    lda snakeLeft, x        // get the head
+    jmp end_if
+!:
+    cmp #RIGHT_DIRECTION
+    ldx #4
+    lda snakeRight, x          // tail segment
+    pha
+    lda lastDirection
+    cmp #DOWN_DIRECTION
+    bne !else+
+    ldx #2
+    lda snakeRight, x          // turning down
+    pha 
+    jmp !get_head+
+!else:
+    cmp #UP_DIRECTION
+    bne !else+
+    ldx #3
+    lda snakeRight, x          // turning up
+    pha
+    jmp !get_head+
+!else:
+    ldx #1
+    lda snakeRight, x          // going right
+    pha
+!get_head:
+    ldx #0
+    lda snakeRight, x        // get the head
+end_if:
+    // --------------------- Draw the head -----------------
     // Draw the char
     sta charPointer
     jsr draw_to_screen
-    // Draw the tail (blank char)
-    ldy #SEGMENT_OFFSET + SEGMENT_SIZE
+    // --------------------- Draw the body segments -----------------
+    // Draw the next body segment
+    ldy #LAST_SEGMENT_OFFSET
     // Get x location
     lda (MEMORY_INDIRECT_LOW), y
     sta xPointer
@@ -667,10 +825,26 @@ draw_next_segment:
     iny
     lda (MEMORY_INDIRECT_LOW), y
     sta yPointer
-    lda #BLANK_CHAR
-    // Draw the char
+    pla
     sta charPointer
     jsr draw_to_screen
+    // Draw the tail
+    ldy #TAIL_SEGMENT_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    sta xPointer
+    iny
+    lda (MEMORY_INDIRECT_LOW), y
+    sta yPointer
+    pla
+    sta charPointer
+    jsr draw_to_screen
+    
+    // Shift the direction down
+    ldy #DIRECTION_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    ldy #LAST_SEGMENT_OFFSET + 2
+    sta (MEMORY_INDIRECT_LOW), y    // shift direction
+
     rts
 }
 
@@ -734,7 +908,7 @@ draw_food: {
     jsr draw_to_screen
     // Check for any illegal food positions (collisions with snake or other food)
     lda drawResult
-    cmp #SNAKE_CHAR
+    cmp #$82    // This is the first snake char
     beq !-      // Hit a part of the snake; try again...
     cmp #FOOD_CHAR
     beq !-      // Hit another food; try again...
@@ -800,17 +974,17 @@ draw_to_screen: {
     lda (screenIndirectLow), y
     sta result 
     // We never want to draw over a snake segment (unless blanking), ensure screen contains anything else
-    cmp #SNAKE_CHAR
-    bne !+              // It's not a snake char, so go ahead and draw
+   /* cmp #$82
+    bcc !+              // It's not a snake char, so go ahead and draw
     lda charPointer
     cmp #BLANK_CHAR     
     bne !++             // It's a snake char and NOT a blank char so don't draw
-!:
+!:*/
     // Now we can draw; doesn't matter if food already exists as it's cheap to re-write
     lda charPointer
     sta (screenIndirectLow), y
-    cmp #SNAKE_CHAR
-    beq colour_snake
+    cmp #$82
+    bcs colour_snake
     lda #FOOD_COLOUR
     jmp draw
 colour_snake:
