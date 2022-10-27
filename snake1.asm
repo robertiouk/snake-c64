@@ -1111,7 +1111,7 @@ draw_to_screen: {
     lda (screenIndirectLow), y
     sta result 
     // We never want to draw over a snake segment (unless blanking), ensure screen contains anything else
-   /* cmp #$82
+    cmp #$82
     bcc !+              // It's not a snake char, so go ahead and draw
     // It's a snake char, so check if the head is being drawn
     lda charPointer
@@ -1124,9 +1124,7 @@ draw_to_screen: {
     beq !++
     cmp snakeRight, x
     beq !++
-    cmp #BLANK_CHAR     
-    bne !++             // It's a snake char and NOT a blank char so don't draw
-!:*/
+!:
     // Now we can draw; doesn't matter if food already exists as it's cheap to re-write
     lda charPointer
     sta (screenIndirectLow), y
