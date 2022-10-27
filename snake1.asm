@@ -40,6 +40,7 @@ main:
     .const SEGMENT_OFFSET = 8
     .const LAST_SEGMENT_OFFSET = 10
     .const TAIL_SEGMENT_OFFSET = 13
+    .const BLANK_OFFSET = 16
     .const SEGMENT_SIZE = 2
     // Top of screen memory (page)
     .const SCREEN_MEMORY_PAGE = $0288
@@ -129,6 +130,12 @@ snakeRight:
     //   ------------
     //   x: 1 byte (index 13)
     //   y: 1 byte (index 14)
+    //   direction: 1 byte (index 15)
+    //
+    //   Blank Location
+    //   --------------
+    //   x: 1 byte (index 16)
+    //   y: 1 byte (index 17)
 init:
     // Set charset
     // Bits #1-#3: In text mode, pointer to character memory (bits #11-#13), relative to VIC bank, memory address $DD00. Values:
@@ -262,6 +269,9 @@ draw_row:
     lda #START_ROW
     iny
     sta (MEMORY_INDIRECT_LOW), y
+    iny
+    lda #RIGHT_DIRECTION
+    sta (MEMORY_INDIRECT_LOW), y
 
 // lda $D41B will return a random number between 0-255
 init_random:
@@ -359,6 +369,7 @@ my_interrupt:
     
     jmp $ea31       // Restores A, X & Y registers and CPU flags before returning from interrupt
 
+// Move all the key snake segments along based on their next directions.
 move_snake: {
     // ----------------------- Shift segments ---------------------------
     ldy #SEGMENT_OFFSET
@@ -370,13 +381,123 @@ move_snake: {
     ldy #LAST_SEGMENT_OFFSET + 1
     sta (MEMORY_INDIRECT_LOW), y    // shift y
     // Move the head
+    // Push the segment offset to stack
     // Get the current direction
     ldy #DIRECTION_OFFSET
     lda (MEMORY_INDIRECT_LOW), y
+    pha
+    lda #SEGMENT_OFFSET
+    pha
+    jsr move_segment
+    // Tidy up stack
+    pla
+    pla 
+    // Before moving the tail, mark the current tail location as the blank sector
+    ldy #TAIL_SEGMENT_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    ldy #BLANK_OFFSET
+    sta (MEMORY_INDIRECT_LOW), y
+    ldy #TAIL_SEGMENT_OFFSET + 1
+    lda (MEMORY_INDIRECT_LOW), y
+    ldy #BLANK_OFFSET + 1
+    sta (MEMORY_INDIRECT_LOW), y
+    // Move the tail
+    ldy #TAIL_SEGMENT_OFFSET + 2
+    lda (MEMORY_INDIRECT_LOW), y
+    pha
+    lda #TAIL_SEGMENT_OFFSET
+    pha
+    jsr move_segment
+    pla
+    pla
+    // Check new tail direction
+    ldy #TAIL_SEGMENT_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y    // the new x pos
+    sta TEMP1
+    iny
+    lda (MEMORY_INDIRECT_LOW), y    // the new y pos
+    sta TEMP2
+    jsr read_from_screen
+    // Get the current tail direction
+    ldy #TAIL_SEGMENT_OFFSET + 2
+    lda (MEMORY_INDIRECT_LOW), y
+    ldx #4
+    // ---------------- Tail moving up ----------------
+    cmp #UP_DIRECTION
+    bne !else+
+    lda TEMP4
+    cmp #$87        // turning left
+    bne !+
+    lda #LEFT_DIRECTION
+    sta (MEMORY_INDIRECT_LOW), y
+    jmp !end_if+
+!:
+    cmp #$86        // turning right
+    bne !end_if+
+    lda #RIGHT_DIRECTION
+    sta (MEMORY_INDIRECT_LOW), y
+!else:
+    // --------------- Tail moving down --------------
+    cmp #DOWN_DIRECTION
+    bne !else+
+    lda TEMP4
+    cmp #$83        // turning left
+    bne !+
+    lda #LEFT_DIRECTION
+    sta (MEMORY_INDIRECT_LOW), y
+    jmp !end_if+
+!:
+    cmp #$84       // turning right
+    bne !end_if+
+    lda #RIGHT_DIRECTION
+    sta (MEMORY_INDIRECT_LOW), y
+    jmp !end_if+
+!else:
+    // --------------- Tail moving left ---------------
+    cmp #LEFT_DIRECTION
+    bne !else+
+    lda TEMP4
+    cmp #$84        // turning up
+    bne !+
+    lda #UP_DIRECTION
+    sta (MEMORY_INDIRECT_LOW), y
+    jmp !end_if+
+!:
+    cmp #$86        // turning down
+    bne !end_if+
+    lda #DOWN_DIRECTION
+    sta (MEMORY_INDIRECT_LOW), y
+    jmp !end_if+
+!else:
+    // -------------- Tail moving right -----------------
+    lda TEMP4
+    cmp #$83        // turning up
+    bne !+
+    lda #UP_DIRECTION
+    sta (MEMORY_INDIRECT_LOW), y
+    jmp !end_if+
+!:
+    cmp #$87        // turning down
+    bne !end_if+
+    lda #DOWN_DIRECTION
+    sta (MEMORY_INDIRECT_LOW), y
+!end_if:
+
+    rts
+}
+
+move_segment: {
+    tsx
+    inx
+    inx            // First two bytes are the program counter calling location
+    lda $0101, x   // First stack value will be the segment offset
+    tay
+    inx
+    lda $0101, x   // Second stack value will be the direction to use
     // ------------ UP ---------------
     cmp #UP_DIRECTION
     bne !++
-    ldy #SEGMENT_OFFSET + 1    // get Y
+    iny                 // get Y
     lda (MEMORY_INDIRECT_LOW), y
     // Decrement y
     tax
@@ -393,7 +514,7 @@ move_snake: {
     // ------------ DOWN ---------------
     cmp #DOWN_DIRECTION
     bne !++
-    ldy #SEGMENT_OFFSET + 1    // get Y
+    iny            // get Y
     lda (MEMORY_INDIRECT_LOW), y
     // Increment y
     tax
@@ -410,7 +531,6 @@ move_snake: {
     // ------------ LEFT ---------------
     cmp #LEFT_DIRECTION
     bne !++
-    ldy #SEGMENT_OFFSET        // get x
     lda (MEMORY_INDIRECT_LOW), y
     // Decrement x
     tax
@@ -427,7 +547,6 @@ move_snake: {
     // ------------ RIGHT ---------------
     cmp #RIGHT_DIRECTION
     bne !+
-    ldy #SEGMENT_OFFSET        // get x
     lda (MEMORY_INDIRECT_LOW), y
     // Increment x
     tax
@@ -703,9 +822,6 @@ draw_snake: {
     // Work out which body segments to paint
     cmp #UP_DIRECTION
     bne !+
-    ldx #4
-    lda snakeUp, x          // tail segment
-    pha
     lda lastDirection
     cmp #LEFT_DIRECTION
     bne !else+
@@ -731,9 +847,6 @@ draw_snake: {
 !:
     cmp #DOWN_DIRECTION
     bne !+
-    ldx #4
-    lda snakeDown, x          // tail segment
-    pha
     lda lastDirection
     cmp #LEFT_DIRECTION
     bne !else+
@@ -759,9 +872,6 @@ draw_snake: {
 !:
     cmp #LEFT_DIRECTION
     bne !+
-    ldx #4
-    lda snakeLeft, x          // tail segment
-    pha
     lda lastDirection
     cmp #DOWN_DIRECTION
     bne !else+
@@ -786,9 +896,6 @@ draw_snake: {
     jmp end_if
 !:
     cmp #RIGHT_DIRECTION
-    ldx #4
-    lda snakeRight, x          // tail segment
-    pha
     lda lastDirection
     cmp #DOWN_DIRECTION
     bne !else+
@@ -828,17 +935,47 @@ end_if:
     pla
     sta charPointer
     jsr draw_to_screen
-    // Draw the tail
+    // --------------------- Draw the tail --------------------------
     ldy #TAIL_SEGMENT_OFFSET
     lda (MEMORY_INDIRECT_LOW), y
     sta xPointer
     iny
     lda (MEMORY_INDIRECT_LOW), y
     sta yPointer
-    pla
+    // Work out the char
+    iny
+    ldx #4
+    lda (MEMORY_INDIRECT_LOW), y
+    cmp #UP_DIRECTION
+    bne !else+
+    lda snakeUp, x
+    jmp !end_if+
+!else:
+    cmp #DOWN_DIRECTION
+    bne !else+
+    lda snakeDown, x
+    jmp !end_if+
+!else:
+    cmp #LEFT_DIRECTION
+    bne !else+
+    lda snakeLeft, x
+    jmp !end_if+
+!else:
+    lda snakeRight, x
+!end_if:
     sta charPointer
     jsr draw_to_screen
-    
+    // ------------------ Draw blank sector -------------------
+    ldy #BLANK_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    sta xPointer
+    iny
+    lda (MEMORY_INDIRECT_LOW), y
+    sta yPointer
+    lda #BLANK_CHAR
+    sta charPointer
+    jsr draw_to_screen
+
     // Shift the direction down
     ldy #DIRECTION_OFFSET
     lda (MEMORY_INDIRECT_LOW), y
@@ -976,7 +1113,17 @@ draw_to_screen: {
     // We never want to draw over a snake segment (unless blanking), ensure screen contains anything else
    /* cmp #$82
     bcc !+              // It's not a snake char, so go ahead and draw
+    // It's a snake char, so check if the head is being drawn
     lda charPointer
+    ldx #0
+    cmp snakeUp, x
+    beq !++
+    cmp snakeDown, x
+    beq !++
+    cmp snakeLeft, x
+    beq !++
+    cmp snakeRight, x
+    beq !++
     cmp #BLANK_CHAR     
     bne !++             // It's a snake char and NOT a blank char so don't draw
 !:*/
@@ -992,6 +1139,48 @@ colour_snake:
 draw:
     sta (colourIndirectLow), y
 !:
+    rts
+}
+
+// Read a character to the screen
+// - lookup x coord in TEMP1
+// - lookup y coord in TEMP2
+// @return store the char that was already occupying screen memory in TEMP4
+read_from_screen: {
+    // Put the screen memory page number into $BB/BC (Pointer: Current File Name)
+    .var screenIndirectLow = $bb
+    .var screenIndirectHigh = $bc
+    .var xPointer = TEMP1
+    .var yPointer = TEMP2
+    .var result = TEMP4
+    lda SCREEN_MEMORY_PAGE
+    sta screenIndirectHigh                // high byte
+    lda #0
+    sta screenIndirectLow                 // low byte
+    // First, get the Y location
+    lda yPointer
+    tax                     // transfer the y coord to the x register so we can count down rows                         
+!:
+    cpx #0
+    beq !+
+    // Increment the screen row
+    clc
+    lda screenIndirectLow
+    adc #MAX_COL
+    sta screenIndirectLow
+    lda screenIndirectHigh
+    adc #0
+    sta screenIndirectHigh
+    dex
+    jmp !-
+!:
+    // Next, get the x location of the chars
+    lda xPointer 
+    // Finally draw the char to scren memory
+    tay
+    // Get the character loaded on screen 
+    lda (screenIndirectLow), y
+    sta result 
     rts
 }
 
