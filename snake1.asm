@@ -90,6 +90,7 @@ snakeRight:
     .const FRAME_COUNT = TEMP7
     .const POINTS_PER_FOOD = 5
     .const SCORE_ROW = 22
+    .const LOWEST_SNAKE_CHAR = $82
     // ROM functions / memory locations
     .const SCAN_STOP = $ffe1
     .const CHAR_OUT = $ffd2
@@ -371,7 +372,8 @@ my_interrupt:
 
 // Move all the key snake segments along based on their next directions.
 move_snake: {
-    // ----------------------- Shift segments ---------------------------
+    // ************************ Shift segments *****************************
+    // Shift the head and first body segment
     ldy #SEGMENT_OFFSET
     lda (MEMORY_INDIRECT_LOW), y
     ldy #LAST_SEGMENT_OFFSET
@@ -379,7 +381,7 @@ move_snake: {
     ldy #SEGMENT_OFFSET + 1
     lda (MEMORY_INDIRECT_LOW), y
     ldy #LAST_SEGMENT_OFFSET + 1
-    sta (MEMORY_INDIRECT_LOW), y    // shift y
+    sta (MEMORY_INDIRECT_LOW), y    // shift
     // Move the head
     // Push the segment offset to stack
     // Get the current direction
@@ -391,7 +393,45 @@ move_snake: {
     jsr move_segment
     // Tidy up stack
     pla
-    pla 
+    pla
+    // Check if the head has collided with something
+    ldy #SEGMENT_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    sta TEMP1
+    iny
+    lda (MEMORY_INDIRECT_LOW), y
+    sta TEMP2
+    jsr read_from_screen
+    lda TEMP4
+    cmp #FOOD_CHAR
+    bne !+
+    // ***************** Eaten food ********************************
+    jsr next_food
+    jsr draw_food
+    // ***************** Increment score ******************************
+    sed                             // Set BCD mode
+    ldy #SCORE_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y    // get the current score
+    clc
+    adc #POINTS_PER_FOOD
+    sta (MEMORY_INDIRECT_LOW), y    // low byte
+    iny
+    lda (MEMORY_INDIRECT_LOW), y
+    adc #0
+    sta (MEMORY_INDIRECT_LOW), y    // high byte
+    cld                             // Turn off BCD mode
+    // **************** Display the score *****************************
+    jsr draw_score
+    rts
+!: 
+    cmp #LOWEST_SNAKE_CHAR    
+    bcc !+
+    // *************** Game Over ***********************************
+    ldy #RUN_STATE_OFFSET
+    lda #GAME_OVER
+    sta (MEMORY_INDIRECT_LOW), y
+    rts
+!:
     // Before moving the tail, mark the current tail location as the blank sector
     ldy #TAIL_SEGMENT_OFFSET
     lda (MEMORY_INDIRECT_LOW), y
@@ -590,7 +630,7 @@ move_snake_old: {
     lda TEMP4
     cmp #FOOD_CHAR
     beq eaten_food
-    cmp #$82            // this is the lowest snake char - check for greater than or equals to
+    cmp #LOWEST_SNAKE_CHAR            // this is the lowest snake char - check for greater than or equals to
     bcc !+
 game_over:
     ldy #RUN_STATE_OFFSET
@@ -1045,8 +1085,8 @@ draw_food: {
     jsr draw_to_screen
     // Check for any illegal food positions (collisions with snake or other food)
     lda drawResult
-    cmp #$82    // This is the first snake char
-    beq !-      // Hit a part of the snake; try again...
+    cmp #LOWEST_SNAKE_CHAR    // This is the first snake char
+    bcs !-      // Hit a part of the snake; try again...
     cmp #FOOD_CHAR
     beq !-      // Hit another food; try again...
     // This will loop forever if game ever gets 'completed' - should think of a fix for that
@@ -1111,24 +1151,19 @@ draw_to_screen: {
     lda (screenIndirectLow), y
     sta result 
     // We never want to draw over a snake segment (unless blanking), ensure screen contains anything else
-    cmp #$82
+    cmp #LOWEST_SNAKE_CHAR
     bcc !+              // It's not a snake char, so go ahead and draw
+    cmp #BLANK_CHAR
+    beq !+             // blank char can overwrite any part of a snake
     // It's a snake char, so check if the head is being drawn
     lda charPointer
-    ldx #0
-    cmp snakeUp, x
-    beq !++
-    cmp snakeDown, x
-    beq !++
-    cmp snakeLeft, x
-    beq !++
-    cmp snakeRight, x
-    beq !++
+    cmp #FOOD_CHAR
+    beq !++             // Food can't be drawn on top of a snake
 !:
     // Now we can draw; doesn't matter if food already exists as it's cheap to re-write
     lda charPointer
     sta (screenIndirectLow), y
-    cmp #$82
+    cmp #LOWEST_SNAKE_CHAR
     bcs colour_snake
     lda #FOOD_COLOUR
     jmp draw
