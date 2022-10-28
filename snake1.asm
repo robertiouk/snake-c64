@@ -22,7 +22,7 @@ digits:
 
 colourIndex:
     .byte $00
-    
+
 // Screen is 40 cols x 25 rows
 main:
     // Use $C000 to store the snake variables (for now)
@@ -52,13 +52,16 @@ main:
     .const MAX_COL = 40
     .const MAX_ROW = 20
     // The characters for drawing
-    .const FOOD_CHAR = 106
+    .const FOOD_CHAR1 = $6a
+    .const FOOD_CHAR2 = $69
     .const BLANK_CHAR = 0
     .const CLS_CHAR = 147
     .const FOOD_COLOUR = RED
     .const SNAKE_COLOUR = GREEN
     .const SCORE_COLOUR = ORANGE
     .const BORDER_COLOUR = LIGHT_BLUE
+foodChar:
+    .byte FOOD_CHAR1
     // Snake chars (head, straight, curve1, curve2, tail)
 snakeUp:
     .byte $8b, $85, $83, $84, $8c  // curve1 = left, curve2 = right
@@ -88,7 +91,9 @@ snakeRight:
     .const QUIT_GAME = $ff
     .const GAME_OVER = $0f
     .const FRAMES_PER_UPDATE = 4
+    .const FRAMES_PER_FOOD_UPDATE = 8
     .const FRAME_COUNT = TEMP7
+    .const FOOD_FRAME_COUNT = TEMP6
     .const POINTS_PER_FOOD = 5
     .const SCORE_ROW = 22
     .const LOWEST_SNAKE_CHAR = $82
@@ -368,7 +373,35 @@ my_interrupt:
     lda #0
     sta FRAME_COUNT
 !:
-    
+    // Alternate snake frame
+    inc FOOD_FRAME_COUNT
+    lda FOOD_FRAME_COUNT
+    cmp #FRAMES_PER_FOOD_UPDATE
+    bne end
+    lda foodChar
+    cmp #FOOD_CHAR1
+    beq set2
+    lda #FOOD_CHAR1
+    sta foodChar
+    jmp !+
+set2:
+    lda #FOOD_CHAR2
+    sta foodChar
+!:
+    ldy #FOOD_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    sta TEMP1
+    iny
+    lda (MEMORY_INDIRECT_LOW), y
+    sta TEMP2
+    lda foodChar
+    sta TEMP3
+    jsr draw_to_screen
+    lda #0
+    sta FOOD_FRAME_COUNT
+!:
+end:
+
     jmp $ea31       // Restores A, X & Y registers and CPU flags before returning from interrupt
 
 // Move all the key snake segments along based on their next directions.
@@ -404,8 +437,12 @@ move_snake: {
     sta TEMP2
     jsr read_from_screen
     lda TEMP4
-    cmp #FOOD_CHAR
+    cmp #FOOD_CHAR1
+    beq eaten_food
+    cmp #FOOD_CHAR2
+    beq eaten_food
     bne !+
+eaten_food:
     // ***************** Eaten food ********************************
     jsr next_food
     jsr draw_food
@@ -897,15 +934,17 @@ draw_food: {
     lda (MEMORY_INDIRECT_LOW), y
     sta yPointer 
     // Finally draw the food to scren memory
-    lda #FOOD_CHAR
+    lda foodChar
     sta charPointer
     jsr draw_to_screen
     // Check for any illegal food positions (collisions with snake or other food)
     lda drawResult
     cmp #LOWEST_SNAKE_CHAR    // This is the first snake char
     bcs !-      // Hit a part of the snake; try again...
-    cmp #FOOD_CHAR
+    cmp #FOOD_CHAR1
     beq !-      // Hit another food; try again...
+    cmp #FOOD_CHAR2
+    beq !-
     // This will loop forever if game ever gets 'completed' - should think of a fix for that
     rts    
 }
@@ -974,8 +1013,10 @@ draw_to_screen: {
     beq !+             // blank char can overwrite any part of a snake
     // It's a snake char, so check if the head is being drawn
     lda charPointer
-    cmp #FOOD_CHAR
+    cmp #FOOD_CHAR1
     beq !++             // Food can't be drawn on top of a snake
+    cmp #FOOD_CHAR2
+    beq !++
 !:
     // Now we can draw; doesn't matter if food already exists as it's cheap to re-write
     lda charPointer
