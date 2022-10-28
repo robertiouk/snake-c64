@@ -58,7 +58,7 @@ main:
     .const FOOD_COLOUR = RED
     .const SNAKE_COLOUR = GREEN
     .const SCORE_COLOUR = ORANGE
-    .const BORDER_COLOUR = PURPLE
+    .const BORDER_COLOUR = LIGHT_BLUE
     // Snake chars (head, straight, curve1, curve2, tail)
 snakeUp:
     .byte $8b, $85, $83, $84, $8c  // curve1 = left, curve2 = right
