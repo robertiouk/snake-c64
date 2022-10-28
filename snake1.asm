@@ -55,9 +55,10 @@ main:
     .const FOOD_CHAR = 106
     .const BLANK_CHAR = 0
     .const CLS_CHAR = 147
-    .const FOOD_COLOUR = GREEN
-    .const SNAKE_COLOUR = RED
+    .const FOOD_COLOUR = RED
+    .const SNAKE_COLOUR = GREEN
     .const SCORE_COLOUR = ORANGE
+    .const BORDER_COLOUR = PURPLE
     // Snake chars (head, straight, curve1, curve2, tail)
 snakeUp:
     .byte $8b, $85, $83, $84, $8c  // curve1 = left, curve2 = right
@@ -218,7 +219,7 @@ draw_row:
     lda windowMap + 630, x
     sta SCREEN_RAM + 630, x
     // Set colours
-    lda #LIGHT_GREY
+    lda #BORDER_COLOUR
     sta COLOUR_RAM, x
     sta COLOUR_RAM + 210, x
     sta COLOUR_RAM + 420, x
