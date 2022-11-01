@@ -42,6 +42,7 @@ main:
     .const TAIL_SEGMENT_OFFSET = 13
     .const BLANK_OFFSET = 16
     .const SEGMENT_SIZE = 2
+    .const INPUT_QUEUE_OFFSET = 18
     // Top of screen memory (page)
     .const SCREEN_MEMORY_PAGE = $0288
     // Screen columns & rows
@@ -143,6 +144,9 @@ snakeRight:
     //   --------------
     //   x: 1 byte (index 16)
     //   y: 1 byte (index 17)
+    //
+    // input size: 1 byte (index 18)
+    // input queue: 1 byte per input (index 19+)
 init:
     // Set charset
     // Bits #1-#3: In text mode, pointer to character memory (bits #11-#13), relative to VIC bank, memory address $DD00. Values:
@@ -279,6 +283,10 @@ draw_row:
     iny
     lda #RIGHT_DIRECTION
     sta (MEMORY_INDIRECT_LOW), y
+    // Reset the input queue
+    ldy #INPUT_QUEUE_OFFSET
+    lda #0
+    sta (MEMORY_INDIRECT_LOW), y
 
 // lda $D41B will return a random number between 0-255
 init_random:
@@ -368,6 +376,7 @@ my_interrupt:
     cmp #FRAMES_PER_UPDATE
     bne !+
     // Do some stuff...
+    jsr set_next_direction
     jsr move_snake
     jsr draw_snake
     lda #0
@@ -1075,9 +1084,9 @@ read_from_screen: {
     rts
 }
 
+// Read the keyboard and check for a valid input. 
+// - add valid inputs to the input queue. this is required in case fast inputs beat the raster to produce a double input
 read_inputs: {
-    .var mask = %0001_1111
-    .var temp = $03a0
     jsr SCAN_STOP
     bne !+
     // Break has been hit - store the quit state
@@ -1087,16 +1096,62 @@ read_inputs: {
     rts
 !:
     jsr GET_IN          // read the keyboard
-    beq !+              // no input loads 0 into A (Z flag will be set)
+    beq !++              // no input loads 0 into A (Z flag will be set)
+    cmp #UP_DIRECTION
+    beq add_to_queue
+    cmp #DOWN_DIRECTION
+    beq add_to_queue
+    cmp #LEFT_DIRECTION
+    beq add_to_queue
+    cmp #RIGHT_DIRECTION
+    beq add_to_queue      
+    rts                 // not a valid input so return
+add_to_queue:
+    pha     // push to the stack
+    // First, increment the queue size
+    ldy #INPUT_QUEUE_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    clc
+    adc #1
+    sta (MEMORY_INDIRECT_LOW), y
+    // Next, add the input to the queue 
+!:
+    iny
+    sec
+    sbc #1
+    bne !-
+    pla     // get the input back from the stack
+    sta (MEMORY_INDIRECT_LOW), y  // add to the queue 
+!:
+    rts
+}
+    
+// Pull the next direction from the queue and set as the current snake direction
+set_next_direction: {
+    .var mask = %0001_1111
+    .var temp = $03a0
+    // Load the queue size
+    ldy #INPUT_QUEUE_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    bne !+
+    rts         // the queue is empty so return
+    // Next, load the next input in the queue
+!:
+    iny
+    beq !+
+    sec
+    sbc #1
+    bne !-
+    lda (MEMORY_INDIRECT_LOW), y
     pha                 // chuck it on the stack for now, we'll come back to it later...
     and #mask           // apply the mask to get to trim off the high bit
-    sta temp           // put it away in memory for a future comparison
+    sta temp            // put it away in memory for a future comparison
     // Load the current direction 
     ldy #DIRECTION_OFFSET
     lda (MEMORY_INDIRECT_LOW), y
     // Check if the opposite direction has been entered
     and #mask           // apply a mask to compare with the opposite
-    cmp temp           // compare with the lower bits of the entered direction
+    cmp temp            // compare with the lower bits of the entered direction
     beq fix_stack_and_quit  // if they're equal then they must be opposites or the same, so return
     // Get the entered direction back
     pla 
@@ -1112,6 +1167,12 @@ read_inputs: {
 store:
     sta (MEMORY_INDIRECT_LOW), y
 !: 
+    // Finally, decrement the queue size
+    ldy #INPUT_QUEUE_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    sec
+    sbc #1
+    sta (MEMORY_INDIRECT_LOW), y
     rts
 fix_stack_and_quit:
     pla
