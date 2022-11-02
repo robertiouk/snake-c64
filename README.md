@@ -7,6 +7,8 @@ From C64 BASIC:
 ```basic
 SYS 2064
 ```
+## Controls
+WASD to control snake
 
 ## TODO
 - Display the score
