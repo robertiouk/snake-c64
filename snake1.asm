@@ -73,10 +73,10 @@ snakeLeft:
 snakeRight:
     .byte $88, $82, $84, $86, $8e  // curve1 = down, curve2 = up
     // Snake directions (based on ASCII)
-    .const UP_DIRECTION = 145
-    .const RIGHT_DIRECTION = 29
-    .const DOWN_DIRECTION = 17
-    .const LEFT_DIRECTION = 157
+    .const UP_DIRECTION = 87
+    .const RIGHT_DIRECTION = 68
+    .const DOWN_DIRECTION = 83
+    .const LEFT_DIRECTION = 65
     // Temp variables for parameters etc. Define as constants as may want to change these
     .const TEMP1 = $0334
     .const TEMP2 = $0335
@@ -1128,7 +1128,6 @@ add_to_queue:
     
 // Pull the next direction from the queue and set as the current snake direction
 set_next_direction: {
-    .var mask = %0001_1111
     .var temp = $03a0
     // Load the queue size
     ldy #INPUT_QUEUE_OFFSET
@@ -1138,35 +1137,43 @@ set_next_direction: {
     // Next, load the next input in the queue
 !:
     iny
-    beq !+
+    beq finally
     sec
     sbc #1
     bne !-
     lda (MEMORY_INDIRECT_LOW), y
-    pha                 // chuck it on the stack for now, we'll come back to it later...
-    and #mask           // apply the mask to get to trim off the high bit
-    sta temp            // put it away in memory for a future comparison
+    sta temp        // put the entered direction to one side...
     // Load the current direction 
     ldy #DIRECTION_OFFSET
     lda (MEMORY_INDIRECT_LOW), y
     // Check if the opposite direction has been entered
-    and #mask           // apply a mask to compare with the opposite
-    cmp temp            // compare with the lower bits of the entered direction
-    beq fix_stack_and_quit  // if they're equal then they must be opposites or the same, so return
-    // Get the entered direction back
-    pla 
     cmp #UP_DIRECTION
-    beq store
+    bne !+
+    lda temp
     cmp #DOWN_DIRECTION
-    beq store
+    beq finally
+    jmp store
+!:
+    cmp #DOWN_DIRECTION
+    bne !+
+    lda temp
+    cmp #UP_DIRECTION
+    beq finally
+    jmp store
+!:
     cmp #LEFT_DIRECTION
-    beq store
+    bne !+
+    lda temp
     cmp #RIGHT_DIRECTION
-    beq store
-    jmp !+              // if we got here then invalid key was pressed, so return
+    beq finally
+    jmp store
+!:
+    lda temp
+    cmp #LEFT_DIRECTION
+    beq finally
 store:
     sta (MEMORY_INDIRECT_LOW), y
-!: 
+finally: 
     // Finally, decrement the queue size
     ldy #INPUT_QUEUE_OFFSET
     lda (MEMORY_INDIRECT_LOW), y
@@ -1174,9 +1181,6 @@ store:
     sbc #1
     sta (MEMORY_INDIRECT_LOW), y
     rts
-fix_stack_and_quit:
-    pla
-    jmp !-
 }
 
 // Clear the screen.
