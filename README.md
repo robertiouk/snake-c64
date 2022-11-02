@@ -11,8 +11,6 @@ SYS 2064
 WASD to control snake
 
 ## TODO
-- Display the score
 - Add sound
 - Unit test
 - Handle (unlikely) game completion scenario
-- Fix bug where left + down = up!?
