@@ -334,6 +334,7 @@ end_game:
 !:
     jsr GET_IN
     beq !-
+    // Disable the raster interrupt while the game is reset (this ensures game over message is no longer displayed)
     lda #0
     sta $d01a
     jmp restart_game
