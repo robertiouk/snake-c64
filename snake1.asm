@@ -213,7 +213,6 @@ inner_loop:
     jmp colour_loop
 restart_game:
     // Load window
-    jsr set_interrupt
     jsr clear_screen
     ldx #210
 draw_row:
@@ -288,6 +287,9 @@ draw_row:
     lda #0
     sta (MEMORY_INDIRECT_LOW), y
 
+    jsr set_interrupt
+
+
 // lda $D41B will return a random number between 0-255
 init_random:
     lda #$FF  // maximum frequency value
@@ -332,6 +334,8 @@ end_game:
 !:
     jsr GET_IN
     beq !-
+    lda #0
+    sta $d01a
     jmp restart_game
 
 game_over_interrupt:
