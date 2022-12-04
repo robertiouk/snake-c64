@@ -1,6 +1,6 @@
-BasicUpstart(main)
-* = $0810
-jmp main
+BasicUpstart2(main)
+//* = $0810
+//jmp main
 
 snakeTextMap:
     .import binary "assets/snake_map.bin"
@@ -21,6 +21,9 @@ digits:
     .byte $78, $79, $7a, $7b, $7c, $7d, $7e, $7f, $80, $81
 
 colourIndex:
+    .byte $00
+
+joyInput:
     .byte $00
 
 // Screen is 40 cols x 25 rows
@@ -77,6 +80,14 @@ snakeRight:
     .const RIGHT_DIRECTION = 68
     .const DOWN_DIRECTION = 83
     .const LEFT_DIRECTION = 65
+    // Joystick control
+    .const JOY_PORT_2 = $dc00
+
+    .const JOY_UP = %00001
+    .const JOY_DN = %00010
+    .const JOY_LT = %00100
+    .const JOY_RT = %01000
+    .const JOY_FR = %10000
     // Temp variables for parameters etc. Define as constants as may want to change these
     .const TEMP1 = $0334
     .const TEMP2 = $0335
@@ -207,8 +218,11 @@ inner_loop:
     cmp $d012   // compare to the current raster line
     bne !-
 
-    jsr GET_IN
-    bne restart_game      // no input loads 0 into A (Z flag set means input read)
+    //jsr GET_IN
+    //bne restart_game      // no input loads 0 into A (Z flag set means input read)
+    lda JOY_PORT_2
+    and #JOY_FR
+    beq restart_game
     // Repeat
     jmp colour_loop
 restart_game:
@@ -321,6 +335,7 @@ init_random:
     // Main game loop
 loop:
     jsr read_inputs
+    jsr player_control
 
     // Check game state
     ldy #RUN_STATE_OFFSET
@@ -332,8 +347,10 @@ loop:
 end_game:
     jsr game_over_interrupt
 !:
-    jsr GET_IN
-    beq !-
+   // jsr GET_IN
+    lda JOY_PORT_2
+    and #JOY_FR         // Check if fire bit is pulled down (0)
+    bne !-
     // Disable the raster interrupt while the game is reset (this ensures game over message is no longer displayed)
     lda #0
     sta $d01a
@@ -1088,6 +1105,69 @@ read_from_screen: {
     sta result 
     rts
 }
+
+// Read the joystick for control
+player_control: {
+    lda JOY_PORT_2
+    .var JOY_ZP = joyInput
+    sta JOY_ZP        
+
+    ldy #DIRECTION_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+!up:
+    cmp #DOWN_DIRECTION
+    beq !+
+    lda JOY_ZP
+    and #JOY_UP
+    // accumulator will contain 0 if pressed, 1 if not
+    bne !+          // if it's not 0 then it hasn't been pressed
+    lda #UP_DIRECTION
+    jmp done
+!:
+
+!down:
+    ldy #DIRECTION_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    cmp #UP_DIRECTION
+    beq !+
+    lda JOY_ZP   
+    and #JOY_DN
+    bne !+
+    lda #DOWN_DIRECTION
+    jmp done
+!:
+
+!left:
+    ldy #DIRECTION_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    cmp #RIGHT_DIRECTION
+    beq !+
+    lda JOY_ZP
+    and #JOY_LT
+    bne !+
+    lda #LEFT_DIRECTION
+    jmp done
+!:
+
+!right:
+    ldy #DIRECTION_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    cmp #LEFT_DIRECTION
+    beq !+
+    lda JOY_ZP
+    and #JOY_RT
+    bne !+
+    lda #RIGHT_DIRECTION
+    jmp done
+!:
+    rts
+done:
+    ldy #DIRECTION_OFFSET
+    sta (MEMORY_INDIRECT_LOW), y
+
+    rts   
+}
+
 
 // Read the keyboard and check for a valid input. 
 // - add valid inputs to the input queue. this is required in case fast inputs beat the raster to produce a double input
