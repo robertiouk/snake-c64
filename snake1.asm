@@ -1107,6 +1107,8 @@ read_from_screen: {
 }
 
 // Read the joystick for control
+lastInput:
+    .byte $00
 player_control: {
     lda JOY_PORT_2
     .var JOY_ZP = joyInput
@@ -1162,8 +1164,27 @@ player_control: {
 !:
     rts
 done:
-    ldy #DIRECTION_OFFSET
+    // Don't add the same value twice to the queue
+    cmp lastInput
+    beq !++
+    sta lastInput
+add_to_queue:
+    pha     // push to the stack
+    // First, increment the queue size
+    ldy #INPUT_QUEUE_OFFSET
+    lda (MEMORY_INDIRECT_LOW), y
+    clc
+    adc #1
     sta (MEMORY_INDIRECT_LOW), y
+    // Next, add the input to the queue 
+!:
+    iny
+    sec
+    sbc #1
+    bne !-
+    pla     // get the input back from the stack
+    sta (MEMORY_INDIRECT_LOW), y  // add to the queue 
+!:
 
     rts   
 }
