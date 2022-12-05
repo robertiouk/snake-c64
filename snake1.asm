@@ -26,6 +26,9 @@ colourIndex:
 joyInput:
     .byte $00
 
+lastInput:
+    .byte $00
+
 // Screen is 40 cols x 25 rows
 main:
     // Use $C000 to store the snake variables (for now)
@@ -252,6 +255,7 @@ draw_row:
     // Initialise variables
     lda #00
     ldy #00
+    sta lastInput
     sta FRAME_COUNT
     sta (MEMORY_INDIRECT_LOW), y
     iny
@@ -1107,8 +1111,6 @@ read_from_screen: {
 }
 
 // Read the joystick for control
-lastInput:
-    .byte $00
 player_control: {
     lda JOY_PORT_2
     .var JOY_ZP = joyInput
